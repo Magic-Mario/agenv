@@ -39,20 +39,26 @@ the first rung that holds:
 - Before calling a task done, run the project's verification (see the `qa` agent)
   and confirm it passes.
 
-## Development loop — run the reviewers after every change
+## Development loop — bookended by the delivery manager
 
-After each task or feature is written (not only at the end), run the review
-agents in order and fix what they flag before moving on:
+`delivery-manager` opens and closes every task in the Vikunja backlog. The loop
+around each task or feature:
 
-1. `qa` — run the project's verification; confirm it actually works.
-2. `solid-reviewer` — SOLID, design, and over-engineering (ponytail) pass.
-3. `security-auditor` — security review at trust boundaries.
-4. `documentation` — docs reflect the change.
-5. `task-reviewer` — verify the spec task is genuinely done and mark it checked.
+1. `delivery-manager` (start) — sync the backlog: ensure the task you are about
+   to develop exists in Vikunja and mark it in progress.
+2. Write the task/feature.
+3. `qa` — run the project's verification; confirm it actually works.
+4. `solid-reviewer` — SOLID, design, and over-engineering (ponytail) pass.
+5. `security-auditor` — security review at trust boundaries.
+6. `documentation` — docs reflect the change.
+7. `task-reviewer` — verify the spec task is genuinely done and mark it checked.
+8. `delivery-manager` (end) — once every agent above passes, mark the task done
+   in Vikunja and document it.
 
-They work in synergy, not isolation: each reports findings, and those are fixed
-before the next agent runs, so every check builds on a clean tree. A task is not
-done until `qa` passes and `task-reviewer` has marked it.
+The reviewers work in synergy, not isolation: each reports findings, and those
+are fixed before the next agent runs, so every check builds on a clean tree. A
+task is not done until `qa` passes, `task-reviewer` has marked it, and
+`delivery-manager` has closed it in Vikunja.
 
 ## Build / run / test
 
