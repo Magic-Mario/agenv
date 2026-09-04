@@ -21,11 +21,12 @@ Dependencies (each justified):
   avoid vendoring C and build complexity.
 
 ## Data flow
-1. `agenv add foo --source URL --ref v1.2.0` → parse manifest → upsert
-   `[skills].foo` → serialize back (stable key order).
+1. `agenv add --source <URL>` → infer `name`/`ref`/`path` from the URL (or prompt
+   for a name), then upsert `[skills].<name>` → serialize back (stable key order).
 2. `agenv install` → read manifest → for each skill: if lock entry exists and
-   `source`+`ref` unchanged → reuse locked commit; else resolve `ref → commit`.
-   Compute checksum at that commit → write lock → copy tree to `.claude/skills/`.
+   `source`+`ref`+`path` unchanged → reuse locked commit; else resolve `ref →
+   commit`. Compute checksum over the skill's subdirectory (the whole tree when
+   `path` is absent) → write lock → copy to `.claude/skills/<name>/`.
 3. `agenv status` → diff manifest vs lock → print drift table → exit code.
 4. `agenv update [name]` → re-resolve `ref` to latest commit → rewrite lock.
 
@@ -36,11 +37,14 @@ name    = "payments-backend"
 harness = "claude-code"
 
 [skills]
-rust-reviewer = { source = "https://github.com/acme/skills", ref = "v1.2.0" }
+rust-reviewer   = { source = "https://github.com/acme/skills", ref = "v1.2.0" }
+grill-with-docs = { source = "https://github.com/mattpocock/skills", ref = "main", path = "skills/engineering/grill-with-docs" }
 ```
 Rust: `{ name: String, harness: String, skills: BTreeMap<String, SkillSpec> }`
-where `SkillSpec = { source: String, ref: String }`. A map (not array) enforces
-unique names, which must be unique in `.claude/skills/` anyway.
+where `SkillSpec = { source: String, ref: String, path: Option<String> }`. A map
+(not array) enforces unique names, which must be unique in `.claude/skills/`
+anyway. `path` selects a subdirectory inside a multi-skill repo (monorepo); when
+absent, the repo root is the skill.
 
 Lock (`agenv.lock`), machine-generated:
 ```toml
@@ -53,9 +57,10 @@ ref      = "v1.2.0"
 commit   = "f3c2a1b9..."
 checksum = "sha256:..."
 ```
-Rust: `{ version: u32, skills: Vec<LockedSkill> }`, sorted by `name`. Lock uses
-an array (`[[skills]]`) because it is ordered machine output; the manifest uses a
-map because it is hand-authored intent.
+Rust: `{ version: u32, skills: Vec<LockedSkill> }`, sorted by `name`. `LockedSkill`
+carries an optional `path` (serialized only when set) so a path change is a
+detected drift. Lock uses an array (`[[skills]]`) because it is ordered machine
+output; the manifest uses a map because it is hand-authored intent.
 
 ## Error handling
 | Boundary | Behavior |
@@ -98,6 +103,10 @@ materialization happens only after the lock is written (no partial state).
 - **Frozen-vs-resolve split** — install reuses the lock when `source`+`ref` are
   unchanged; `update` is the only command that re-resolves. Separates "reproduce
   exactly" from "move forward".
+- **Path-scoped skills** — a skill may live in a subdirectory of a multi-skill
+  repo (e.g. `mattpocock/skills`). `add` infers the `path` from a GitHub
+  blob/tree URL; checksum and materialization then operate on that subdirectory
+  only, never the whole repo.
 
 ## Risks
 - Skills have no standard version field today, so `ref` (tag/sha) is the only

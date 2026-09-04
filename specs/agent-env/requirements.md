@@ -31,9 +31,13 @@ Each requirement is numbered, testable, and phrased as observable behavior.
 - **R1** — When `agenv init` runs in a directory, it SHALL create `agenv.toml`
   containing `name`, `harness = "claude-code"`, and an empty `[skills]` table,
   plus a `.gitignore` entry for the local store/cache.
-- **R2** — When `agenv add <name> --source <url> --ref <ref>` runs, it SHALL
-  upsert a `[skills]` entry mapping `name` to `{ source, ref }` and SHALL reject
-  an empty name, a non-git `source`, or an empty `ref`.
+- **R2** — When `agenv add [name] --source <url> [--ref <ref>] [--path <path>]`
+  runs, it SHALL upsert a `[skills]` entry mapping `name` to
+  `{ source, ref, path? }`. It SHALL infer `name` (from a GitHub blob/tree URL or
+  the repo basename), `ref` (from the URL or the source's default branch), and
+  `path` (the subdirectory holding `SKILL.md`) when omitted, prompt for a `name`
+  it cannot infer, and reject an unsafe name/path, a non-git `source`, or an
+  empty `ref`.
 - **R3** — When `agenv install` runs without a lock, it SHALL resolve each
   skill's `ref` to a concrete commit, compute a content checksum of that commit's
   tree, and write both to `agenv.lock`.

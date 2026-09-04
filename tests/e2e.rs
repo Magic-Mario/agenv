@@ -59,6 +59,26 @@ fn make_source(base: &Path) -> PathBuf {
     src
 }
 
+fn make_monorepo(base: &Path) -> PathBuf {
+    let src = base.join("monorepo");
+    std::fs::create_dir_all(src.join("skills/engineering/grill-with-docs")).unwrap();
+    std::fs::create_dir_all(src.join("skills/other")).unwrap();
+    git(&src, &["init", "-q"]);
+    git(&src, &["config", "user.email", "t@example.com"]);
+    git(&src, &["config", "user.name", "t"]);
+    std::fs::write(
+        src.join("skills/engineering/grill-with-docs/SKILL.md"),
+        "# grill\n",
+    )
+    .unwrap();
+    std::fs::write(src.join("skills/other/SKILL.md"), "# other\n").unwrap();
+    std::fs::write(src.join("README.md"), "# monorepo\n").unwrap();
+    git(&src, &["add", "."]);
+    git(&src, &["commit", "-qm", "init"]);
+    git(&src, &["tag", "v1.0.0"]);
+    src
+}
+
 fn find_file(root: &Path, name: &str) -> PathBuf {
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -234,6 +254,62 @@ fn checksum_mismatch_aborts() {
     assert!(!out.status.success());
     let after = std::fs::read_to_string(project.join(".claude/skills/foo/SKILL.md")).unwrap();
     assert_eq!(before, after, "prior install must remain untouched");
+
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn subdirectory_skill() {
+    let base = temp_base("subdir");
+    let src = make_monorepo(&base);
+    let project = base.join("project");
+    let store = base.join("store");
+    std::fs::create_dir_all(&project).unwrap();
+    let source = src.to_string_lossy().into_owned();
+
+    assert!(run(&project, &store, &["init"]).status.success());
+
+    let out = run(
+        &project,
+        &store,
+        &[
+            "add",
+            "--source",
+            &source,
+            "--ref",
+            "v1.0.0",
+            "--path",
+            "skills/engineering/grill-with-docs",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // name inferred from the path
+    let manifest = std::fs::read_to_string(project.join("agenv.toml")).unwrap();
+    assert!(manifest.contains("grill-with-docs"), "{manifest}");
+
+    let out = run(&project, &store, &["install"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let materialized =
+        std::fs::read_to_string(project.join(".claude/skills/grill-with-docs/SKILL.md")).unwrap();
+    assert!(materialized.contains("grill"), "{materialized}");
+    // only the requested subdirectory is materialized, not the whole repo
+    assert!(!project.join(".claude/skills/other").exists());
+    assert!(!project
+        .join(".claude/skills/grill-with-docs/README.md")
+        .exists());
+
+    let out = run(&project, &store, &["status"]);
+    assert!(out.status.success());
 
     let _ = std::fs::remove_dir_all(&base);
 }

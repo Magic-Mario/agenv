@@ -17,6 +17,8 @@ pub struct LockedSkill {
     pub source: String,
     #[serde(rename = "ref")]
     pub r#ref: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     pub commit: String,
     pub checksum: String,
 }
@@ -64,6 +66,7 @@ mod tests {
             name: name.to_string(),
             source: "https://github.com/acme/skills".to_string(),
             r#ref: "v1.2.0".to_string(),
+            path: None,
             commit: "f3c2a1b9".to_string(),
             checksum: "sha256:abcd".to_string(),
         }

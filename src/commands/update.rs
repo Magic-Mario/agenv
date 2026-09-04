@@ -26,11 +26,12 @@ pub fn run(name: Option<&str>) -> Result<()> {
     for n in &targets {
         let spec = &manifest.skills[n];
         validate_skill(n, spec)?;
-        let r = resolver::resolve_tree(&spec.source, &spec.r#ref)?;
+        let r = resolver::resolve_tree(&spec.source, &spec.r#ref, spec.path.as_deref())?;
         let entry = LockedSkill {
             name: n.clone(),
             source: spec.source.clone(),
             r#ref: spec.r#ref.clone(),
+            path: spec.path.clone(),
             commit: r.commit,
             checksum: r.checksum,
         };

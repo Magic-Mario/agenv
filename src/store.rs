@@ -23,6 +23,16 @@ fn sha256_hex(s: &str) -> String {
     format!("{:x}", Sha256::digest(s.as_bytes()))
 }
 
+pub fn redact(url: &str) -> String {
+    match url.find("://") {
+        Some(i) => match url[i + 3..].find('@') {
+            Some(at) => format!("{}://{}", &url[..i], &url[i + 3 + at + 1..]),
+            None => url.to_string(),
+        },
+        None => url.to_string(),
+    }
+}
+
 pub fn repo_dir(source: &str) -> PathBuf {
     store_root().join(sha256_hex(source)).join("repo.git")
 }
@@ -58,7 +68,7 @@ fn ensure_clone(source: &str) -> Result<PathBuf> {
         .status()
         .context("running git clone")?;
     if !status.success() {
-        anyhow::bail!("git clone failed for {source}");
+        anyhow::bail!("git clone failed for {}", redact(source));
     }
     Ok(repo)
 }
@@ -78,7 +88,7 @@ pub fn fetch(source: &str) -> Result<PathBuf> {
         .status()
         .context("running git fetch")?;
     if !status.success() {
-        anyhow::bail!("git fetch failed for {source}");
+        anyhow::bail!("git fetch failed for {}", redact(source));
     }
     Ok(repo)
 }

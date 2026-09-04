@@ -19,6 +19,8 @@ pub struct SkillSpec {
     pub source: String,
     #[serde(rename = "ref")]
     pub r#ref: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 impl Manifest {
@@ -41,12 +43,30 @@ pub fn validate_skill(name: &str, spec: &SkillSpec) -> Result<()> {
         );
     }
     if !is_git_source(&spec.source) {
-        anyhow::bail!("source '{}' is not a git repository", spec.source);
+        anyhow::bail!(
+            "source '{}' is not a git repository",
+            crate::store::redact(&spec.source)
+        );
     }
     if spec.r#ref.trim().is_empty() {
         anyhow::bail!("skill '{}' has an empty ref", name);
     }
+    if let Some(path) = &spec.path {
+        if !is_safe_path(path) {
+            anyhow::bail!(
+                "invalid path '{path}' for skill '{name}': must be a relative path without '..'"
+            );
+        }
+    }
     Ok(())
+}
+
+fn is_safe_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.starts_with('\\')
+        && !path.contains(':')
+        && path.split(['/', '\\']).all(|c| c != "..")
 }
 
 fn is_safe_name(name: &str) -> bool {
@@ -58,7 +78,7 @@ fn is_safe_name(name: &str) -> bool {
         && !name.contains(':')
 }
 
-fn is_git_source(source: &str) -> bool {
+pub fn is_git_source(source: &str) -> bool {
     if source.starts_with('-') {
         return false;
     }
@@ -95,6 +115,7 @@ mod tests {
             SkillSpec {
                 source: "https://github.com/acme/skills".to_string(),
                 r#ref: "v1.2.0".to_string(),
+                path: None,
             },
         );
         let manifest = Manifest {
@@ -122,50 +143,30 @@ ref = 1.2.0
         assert!(toml::from_str::<Manifest>(raw).is_err());
     }
 
+    fn spec(source: &str, reference: &str, path: Option<&str>) -> SkillSpec {
+        SkillSpec {
+            source: source.to_string(),
+            r#ref: reference.to_string(),
+            path: path.map(String::from),
+        }
+    }
+
     #[test]
     fn validation_rules() {
-        assert!(validate_skill(
-            "",
-            &SkillSpec {
-                source: "git@github.com:a/b".into(),
-                r#ref: "main".into()
-            }
-        )
-        .is_err());
-        assert!(validate_skill(
-            "ok",
-            &SkillSpec {
-                source: "not-a-git-source".into(),
-                r#ref: "main".into()
-            }
-        )
-        .is_err());
-        assert!(validate_skill(
-            "ok",
-            &SkillSpec {
-                source: "git@github.com:a/b".into(),
-                r#ref: "".into()
-            }
-        )
-        .is_err());
-        assert!(validate_skill(
-            "ok",
-            &SkillSpec {
-                source: "git@github.com:a/b".into(),
-                r#ref: "main".into()
-            }
-        )
-        .is_ok());
+        assert!(validate_skill("", &spec("git@github.com:a/b", "main", None)).is_err());
+        assert!(validate_skill("ok", &spec("not-a-git-source", "main", None)).is_err());
+        assert!(validate_skill("ok", &spec("git@github.com:a/b", "", None)).is_err());
+        assert!(validate_skill("ok", &spec("git@github.com:a/b", "main", None)).is_ok());
+        assert!(
+            validate_skill("ok", &spec("git@github.com:a/b", "main", Some("../evil"))).is_err()
+        );
+        assert!(validate_skill("ok", &spec("git@github.com:a/b", "main", Some("/abs"))).is_err());
+        assert!(
+            validate_skill("ok", &spec("git@github.com:a/b", "main", Some("skills/x"))).is_ok()
+        );
         for bad in ["../evil", "a/b", "a\\b", "C:evil", ".", ".."] {
             assert!(
-                validate_skill(
-                    bad,
-                    &SkillSpec {
-                        source: "git@github.com:a/b".into(),
-                        r#ref: "main".into()
-                    }
-                )
-                .is_err(),
+                validate_skill(bad, &spec("git@github.com:a/b", "main", None)).is_err(),
                 "name {bad:?} should be rejected"
             );
         }

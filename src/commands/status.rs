@@ -22,7 +22,7 @@ pub fn run() -> Result<()> {
                 println!("added:   {name}");
                 drift = true;
             }
-            Some(l) if l.source != spec.source || l.r#ref != spec.r#ref => {
+            Some(l) if l.source != spec.source || l.r#ref != spec.r#ref || l.path != spec.path => {
                 println!(
                     "ref-changed: {name} ({}@{} -> {}@{})",
                     l.source, l.r#ref, spec.source, spec.r#ref

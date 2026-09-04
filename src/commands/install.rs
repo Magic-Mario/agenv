@@ -1,10 +1,9 @@
 use anyhow::Result;
 
-use crate::checksum;
 use crate::commands::{lock_path, manifest_path, materialize_all};
 use crate::lock::{Lock, LockedSkill};
 use crate::manifest::{validate_skill, Manifest};
-use crate::{resolver, store};
+use crate::resolver;
 
 pub fn run() -> Result<()> {
     let manifest = Manifest::load(&manifest_path())?;
@@ -18,29 +17,31 @@ pub fn run() -> Result<()> {
     for (name, spec) in &manifest.skills {
         validate_skill(name, spec)?;
         let locked = lock.get(name);
-        let frozen = locked.filter(|l| l.source == spec.source && l.r#ref == spec.r#ref);
+        let frozen = locked
+            .filter(|l| l.source == spec.source && l.r#ref == spec.r#ref && l.path == spec.path);
 
         let (entry, tree) = match frozen {
             Some(l) => {
-                let tree = store::checkout_tree(&l.source, &l.commit)?;
-                let actual = checksum::tree_checksum(&tree)?;
-                if actual != l.checksum {
+                let r = resolver::checkout(&l.source, &l.commit, l.path.as_deref())?;
+                if r.checksum != l.checksum {
                     anyhow::bail!(
-                        "checksum mismatch for '{name}' at commit {} (expected {}, got {actual}); \
+                        "checksum mismatch for '{name}' at commit {} (expected {}, got {}); \
                          stored content is corrupted",
                         l.commit,
-                        l.checksum
+                        l.checksum,
+                        r.checksum
                     );
                 }
-                (l.clone(), tree)
+                (l.clone(), r.tree)
             }
             None => {
-                let r = resolver::resolve_tree(&spec.source, &spec.r#ref)?;
+                let r = resolver::resolve_tree(&spec.source, &spec.r#ref, spec.path.as_deref())?;
                 (
                     LockedSkill {
                         name: name.clone(),
                         source: spec.source.clone(),
                         r#ref: spec.r#ref.clone(),
+                        path: spec.path.clone(),
                         commit: r.commit,
                         checksum: r.checksum,
                     },

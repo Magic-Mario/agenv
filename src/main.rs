@@ -20,11 +20,13 @@ enum Command {
     Init,
     /// Add a skill dependency
     Add {
-        name: String,
+        name: Option<String>,
         #[arg(long = "source")]
         source: String,
         #[arg(long = "ref")]
-        git_ref: String,
+        git_ref: Option<String>,
+        #[arg(long = "path")]
+        path: Option<String>,
     },
     /// Resolve and materialize skills into .claude/skills/
     Install,
@@ -42,7 +44,13 @@ fn main() {
             name,
             source,
             git_ref,
-        } => commands::add::run(&name, &source, &git_ref),
+            path,
+        } => commands::add::run(
+            name.as_deref(),
+            &source,
+            git_ref.as_deref(),
+            path.as_deref(),
+        ),
         Command::Install => commands::install::run(),
         Command::Status => commands::status::run(),
         Command::Update { name } => commands::update::run(name.as_deref()),
