@@ -319,3 +319,62 @@ fn read_lock_commit(path: &Path) -> String {
     let doc: toml::Value = toml::from_str(&text).unwrap();
     doc["skills"][0]["commit"].as_str().unwrap().to_string()
 }
+
+fn edit_manifest(project: &Path, f: impl FnOnce(&mut toml::Value)) {
+    let path = project.join("agenv.toml");
+    let text = std::fs::read_to_string(&path).unwrap();
+    let mut doc: toml::Value = toml::from_str(&text).unwrap();
+    f(&mut doc);
+    std::fs::write(&path, toml::to_string(&doc).unwrap()).unwrap();
+}
+
+#[test]
+fn sync_multi_harness_prunes() {
+    let base = temp_base("sync");
+    let src = make_source(&base);
+    let project = base.join("project");
+    let store = base.join("store");
+    std::fs::create_dir_all(&project).unwrap();
+    let source = src.to_string_lossy().into_owned();
+
+    assert!(run(&project, &store, &["init"]).status.success());
+
+    edit_manifest(&project, |m| {
+        m["harness"] = toml::Value::Array(vec![
+            toml::Value::String("claude-code".into()),
+            toml::Value::String("opencode".into()),
+        ]);
+    });
+
+    assert!(run(
+        &project,
+        &store,
+        &["add", "foo", "--source", &source, "--ref", "v1.0.0"]
+    )
+    .status
+    .success());
+
+    let out = run(&project, &store, &["sync"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(project.join(".claude/skills/foo/SKILL.md").exists());
+    assert!(project.join(".opencode/skills/foo/SKILL.md").exists());
+
+    edit_manifest(&project, |m| {
+        m["skills"].as_table_mut().unwrap().remove("foo");
+    });
+
+    let out = run(&project, &store, &["sync"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!project.join(".claude/skills/foo").exists());
+    assert!(!project.join(".opencode/skills/foo").exists());
+
+    let _ = std::fs::remove_dir_all(&base);
+}

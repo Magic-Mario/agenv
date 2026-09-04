@@ -2,7 +2,7 @@
 
 Reproducible, shareable agent environments — the `Cargo.lock` for AI coding
 agent skills. Declare which skills a project depends on, pin them to an exact
-git commit + content checksum, and generate the native Claude Code layout.
+git commit + content checksum, and generate the native layout for each harness.
 
 ## Prerequisites
 
@@ -30,6 +30,7 @@ agenv add my-skill \
   --source https://github.com/acme/skills \
   --ref v1.2.0 --path skills/rust-reviewer     # or be explicit
 agenv install                                  # resolve, lock, materialize
+agenv sync                                     # install + remove skills not in the manifest
 agenv status                                   # report drift (non-zero if dirty)
 agenv update [my-skill]                        # re-resolve to the latest commit
 ```
@@ -40,15 +41,20 @@ and `name` to the repo name; a `path` defaults the name to its last component.
 Pass the name as the first argument (or `--ref`/`--path`) to override, and it
 prompts for a name when it cannot infer one.
 
-`install` materializes each skill into `.claude/skills/<name>/` from a
-content-addressed store. A skill with a `path` is copied from that subdirectory
-only. The store lives at `~/.local/share/agenv/store/` (override with the
-`AGENV_STORE` env var).
+`install` materializes each skill into `<harness>/skills/<name>/` from a
+content-addressed store. `harness` is a list; each entry maps to a base
+directory: `claude-code` → `.claude`, `opencode` → `.opencode`. A skill with a
+`path` is copied from that subdirectory only. The store lives at
+`~/.local/share/agenv/store/` (override with the `AGENV_STORE` env var).
+
+`sync` = `install` + reconcile: it also removes any skill directory that is no
+longer in the manifest, so the generated directories mirror `agenv.toml`
+exactly.
 
 ## Files
 
-- `agenv.toml` — hand-authored manifest (`name`, `harness`, `[skills]` with
-  `source`, `ref`, and optional `path`).
+- `agenv.toml` — hand-authored manifest (`name`, `harness` (a list of harness
+  names), `[skills]` with `source`, `ref`, and optional `path`).
 - `agenv.lock` — machine-generated lock (`version`, `[[skills]]` with `commit`
   and `checksum`), sorted by name. Commit both to your repo.
 
@@ -66,5 +72,5 @@ only. The store lives at `~/.local/share/agenv/store/` (override with the
 
 ## Scope
 
-Skills only, Claude Code only, no sandboxing/process/network/credential
+Skills only, Claude Code + OpenCode, no sandboxing/process/network/credential
 isolation. MCP servers, plugins, other harnesses, and a registry are deferred.

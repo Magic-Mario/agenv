@@ -4,7 +4,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use crate::commands::manifest_path;
+use crate::commands::{harness_base, manifest_path};
 use crate::manifest::{Manifest, SkillSpec};
 
 pub fn run() -> Result<()> {
@@ -20,27 +20,34 @@ pub fn run() -> Result<()> {
 
     let manifest = Manifest {
         name,
-        harness: "claude-code".to_string(),
+        harness: vec!["claude-code".to_string()],
         skills: BTreeMap::<String, SkillSpec>::new(),
     };
     manifest.save(&path)?;
 
     let gitignore = Path::new(".gitignore");
-    let entry = ".claude/skills/";
-    if !gitignore.exists() {
-        fs::write(gitignore, format!("{entry}\n")).context("writing .gitignore")?;
-    } else {
-        let content = fs::read_to_string(gitignore).context("reading .gitignore")?;
-        if !content.lines().any(|l| l.trim() == entry) {
-            let mut out = content;
-            if !out.ends_with('\n') {
-                out.push('\n');
-            }
-            out.push_str(&format!("{entry}\n"));
-            fs::write(gitignore, out).context("writing .gitignore")?;
-        }
+    for harness in &manifest.harness {
+        add_gitignore_entry(gitignore, &format!("{}/skills/", harness_base(harness)?))?;
     }
 
     println!("created agenv.toml ({} skills)", 0);
+    Ok(())
+}
+
+fn add_gitignore_entry(gitignore: &Path, entry: &str) -> Result<()> {
+    if !gitignore.exists() {
+        fs::write(gitignore, format!("{entry}\n")).context("writing .gitignore")?;
+        return Ok(());
+    }
+    let content = fs::read_to_string(gitignore).context("reading .gitignore")?;
+    if content.lines().any(|l| l.trim() == entry) {
+        return Ok(());
+    }
+    let mut out = content;
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str(&format!("{entry}\n"));
+    fs::write(gitignore, out).context("writing .gitignore")?;
     Ok(())
 }

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Manifest {
     pub name: String,
-    pub harness: String,
+    pub harness: Vec<String>,
     #[serde(default)]
     pub skills: BTreeMap<String, SkillSpec>,
 }
@@ -55,6 +55,32 @@ pub fn validate_skill(name: &str, spec: &SkillSpec) -> Result<()> {
         if !is_safe_path(path) {
             anyhow::bail!(
                 "invalid path '{path}' for skill '{name}': must be a relative path without '..'"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Single source of truth: harness name -> base directory.
+pub const HARNESSES: &[(&str, &str)] = &[("claude-code", ".claude"), ("opencode", ".opencode")];
+
+pub fn supported_harnesses() -> String {
+    HARNESSES
+        .iter()
+        .map(|(n, _)| *n)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+pub fn validate_harness(harness: &[String]) -> Result<()> {
+    if harness.is_empty() {
+        anyhow::bail!("manifest must declare at least one harness");
+    }
+    for h in harness {
+        if !HARNESSES.iter().any(|(name, _)| name == h) {
+            anyhow::bail!(
+                "unknown harness '{h}' (supported: {})",
+                supported_harnesses()
             );
         }
     }
@@ -120,7 +146,7 @@ mod tests {
         );
         let manifest = Manifest {
             name: "payments-backend".to_string(),
-            harness: "claude-code".to_string(),
+            harness: vec!["claude-code".to_string()],
             skills,
         };
         let path = tmp_manifest_path("roundtrip");
@@ -135,12 +161,31 @@ mod tests {
         // TOML parses `ref = 1.2.0` as a float; deserializing into String must fail.
         let raw = r#"
 name = "x"
-harness = "claude-code"
+harness = ["claude-code"]
 [skills.foo]
 source = "https://github.com/a/b"
 ref = 1.2.0
 "#;
         assert!(toml::from_str::<Manifest>(raw).is_err());
+    }
+
+    #[test]
+    fn rejects_string_harness() {
+        // `harness` is a list; a bare string must fail to parse (no coercion).
+        let raw = r#"
+name = "x"
+harness = "claude-code"
+[skills]
+"#;
+        assert!(toml::from_str::<Manifest>(raw).is_err());
+    }
+
+    #[test]
+    fn harness_validation() {
+        assert!(validate_harness(&[]).is_err());
+        assert!(validate_harness(&["bogus".to_string()]).is_err());
+        assert!(validate_harness(&["claude-code".to_string()]).is_ok());
+        assert!(validate_harness(&["claude-code".to_string(), "opencode".to_string()]).is_ok());
     }
 
     fn spec(source: &str, reference: &str, path: Option<&str>) -> SkillSpec {

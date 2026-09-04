@@ -3,10 +3,11 @@ use anyhow::Result;
 use crate::checksum;
 use crate::commands::{lock_path, manifest_path, skill_dir};
 use crate::lock::{Lock, LockedSkill};
-use crate::manifest::Manifest;
+use crate::manifest::{validate_harness, Manifest};
 
 pub fn run() -> Result<()> {
     let manifest = Manifest::load(&manifest_path())?;
+    validate_harness(&manifest.harness)?;
     let lock = Lock::load(&lock_path())?;
 
     let mut drift = false;
@@ -30,13 +31,15 @@ pub fn run() -> Result<()> {
                 drift = true;
             }
             Some(l) => {
-                let dir = skill_dir(name);
-                if !dir.exists() {
-                    println!("missing: {name} (not materialized)");
-                    drift = true;
-                } else if checksum::tree_checksum(&dir)? != l.checksum {
-                    println!("checksum-mismatch: {name}");
-                    drift = true;
+                for harness in &manifest.harness {
+                    let dir = skill_dir(harness, name)?;
+                    if !dir.exists() {
+                        println!("missing: {name} ({harness} not materialized)");
+                        drift = true;
+                    } else if checksum::tree_checksum(&dir)? != l.checksum {
+                        println!("checksum-mismatch: {name} ({harness})");
+                        drift = true;
+                    }
                 }
             }
         }
