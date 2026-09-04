@@ -39,13 +39,24 @@ the first rung that holds:
 - Before calling a task done, run the project's verification (see the `qa` agent)
   and confirm it passes.
 
+## Git workflow — one branch per feature
+
+- **Never commit or push directly to `main`** unless the user explicitly says
+  to. `main` only receives changes through reviewed pull requests.
+- Every new feature or task starts from a fresh branch off `main` (e.g.
+  `feat/<name>`), is reviewed there, and lands in `main` only through a pull
+  request once the reviewers pass.
+- `delivery-manager` (start) creates the branch before any work; feature work
+  never happens on `main`.
+
 ## Development loop — bookended by the delivery manager
 
 `delivery-manager` opens and closes every task in the Vikunja backlog. The loop
 around each task or feature:
 
-1. `delivery-manager` (start) — sync the backlog: ensure the task you are about
-   to develop exists in Vikunja and mark it in progress.
+1. `delivery-manager` (start) — create the feature branch off `main`, then sync
+   the backlog: ensure the task you are about to develop exists in Vikunja and
+   mark it in progress.
 2. Write the task/feature.
 3. `qa` — run the project's verification; confirm it actually works.
 4. `solid-reviewer` — SOLID, design, and over-engineering (ponytail) pass.
