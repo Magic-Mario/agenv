@@ -28,8 +28,10 @@ enum Command {
         #[arg(long = "path")]
         path: Option<String>,
     },
-    /// Resolve and materialize skills into .claude/skills/
+    /// Resolve and materialize skills into each harness's skills directory
     Install,
+    /// Reconcile skill directories with the manifest (install + remove stale)
+    Sync,
     /// Report drift between manifest, lock, and installed content
     Status,
     /// Re-resolve skills to the latest commit of their ref
@@ -52,6 +54,7 @@ fn main() {
             path.as_deref(),
         ),
         Command::Install => commands::install::run(),
+        Command::Sync => commands::sync::run(),
         Command::Status => commands::status::run(),
         Command::Update { name } => commands::update::run(name.as_deref()),
     };
