@@ -3,7 +3,7 @@ use std::io::Write;
 use anyhow::Result;
 
 use crate::commands::manifest_path;
-use crate::manifest::{is_git_source, validate_skill, Manifest, SkillSpec};
+use crate::manifest::{is_git_source, is_local_source, validate_skill, Manifest, SkillSpec};
 use crate::resolver;
 use crate::store::redact;
 
@@ -27,7 +27,19 @@ pub fn run(
 
     let inf = parse_source(source);
 
-    let path = path.map(String::from).or(inf.path.clone());
+    let local = is_local_source(&inf.source);
+    if !local && !is_git_source(&inf.source) {
+        anyhow::bail!(
+            "source '{}' is not a git repository or existing directory",
+            redact(&inf.source)
+        );
+    }
+
+    let path = if local {
+        None
+    } else {
+        path.map(String::from).or(inf.path.clone())
+    };
 
     let name = match name {
         Some(n) => n.to_string(),
@@ -41,16 +53,16 @@ pub fn run(
         },
     };
 
-    if !is_git_source(&inf.source) {
-        anyhow::bail!("source '{}' is not a git repository", redact(&inf.source));
-    }
-
-    let r#ref = match reference {
-        Some(r) => r.to_string(),
-        None => match inf.r#ref.clone() {
-            Some(r) => r,
-            None => resolver::default_branch(&inf.source)?,
-        },
+    let r#ref = if local {
+        reference.map(String::from).unwrap_or_default()
+    } else {
+        match reference {
+            Some(r) => r.to_string(),
+            None => match inf.r#ref.clone() {
+                Some(r) => r,
+                None => resolver::default_branch(&inf.source)?,
+            },
+        }
     };
 
     let spec = SkillSpec {

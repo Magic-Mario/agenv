@@ -367,7 +367,7 @@ fn sync_multi_harness_prunes() {
         m["skills"].as_table_mut().unwrap().remove("foo");
     });
 
-    let out = run(&project, &store, &["sync"]);
+    let out = run(&project, &store, &["sync", "--prune"]);
     assert!(
         out.status.success(),
         "{}",
@@ -375,6 +375,115 @@ fn sync_multi_harness_prunes() {
     );
     assert!(!project.join(".claude/skills/foo").exists());
     assert!(!project.join(".opencode/skills/foo").exists());
+
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn local_skill_install_no_lock_entry() {
+    let base = temp_base("local-install");
+    let project = base.join("project");
+    let store = base.join("store");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::create_dir_all(project.join("skills/my-skill")).unwrap();
+    std::fs::write(project.join("skills/my-skill/SKILL.md"), "# mine\n").unwrap();
+
+    assert!(run(&project, &store, &["init"]).status.success());
+    assert!(run(
+        &project,
+        &store,
+        &["add", "my-skill", "--source", "./skills/my-skill"]
+    )
+    .status
+    .success());
+    assert!(run(&project, &store, &["install"]).status.success());
+
+    assert!(project.join(".claude/skills/my-skill/SKILL.md").exists());
+    let lock = std::fs::read_to_string(project.join("agenv.lock")).unwrap();
+    assert!(!lock.contains("my-skill"), "{lock}");
+
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn sync_adopts_harness_skill_vendors() {
+    let base = temp_base("adopt-harness");
+    let project = base.join("project");
+    let store = base.join("store");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::create_dir_all(project.join(".claude/skills/stray")).unwrap();
+    std::fs::write(project.join(".claude/skills/stray/SKILL.md"), "# stray\n").unwrap();
+
+    assert!(run(&project, &store, &["init"]).status.success());
+
+    let out = run(&project, &store, &["sync"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let manifest = std::fs::read_to_string(project.join("agenv.toml")).unwrap();
+    assert!(manifest.contains("[skills.stray]"), "{manifest}");
+    assert!(
+        manifest.contains("source = \"./skills/stray\""),
+        "{manifest}"
+    );
+    assert!(project.join("skills/stray/SKILL.md").exists());
+    assert!(project.join(".claude/skills/stray/SKILL.md").exists());
+
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn sync_adopts_local_skills_dir() {
+    let base = temp_base("adopt-local");
+    let project = base.join("project");
+    let store = base.join("store");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::create_dir_all(project.join("skills/mine")).unwrap();
+    std::fs::write(project.join("skills/mine/SKILL.md"), "# mine\n").unwrap();
+
+    assert!(run(&project, &store, &["init"]).status.success());
+
+    let out = run(&project, &store, &["sync"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let manifest = std::fs::read_to_string(project.join("agenv.toml")).unwrap();
+    assert!(
+        manifest.contains("source = \"./skills/mine\""),
+        "{manifest}"
+    );
+    assert!(project.join(".claude/skills/mine/SKILL.md").exists());
+
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn sync_prune_deletes_undeclared() {
+    let base = temp_base("prune");
+    let project = base.join("project");
+    let store = base.join("store");
+    std::fs::create_dir_all(&project).unwrap();
+    std::fs::create_dir_all(project.join(".claude/skills/extra")).unwrap();
+    std::fs::write(project.join(".claude/skills/extra/SKILL.md"), "# extra\n").unwrap();
+
+    assert!(run(&project, &store, &["init"]).status.success());
+
+    let out = run(&project, &store, &["sync", "--prune"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    assert!(!project.join(".claude/skills/extra").exists());
+    let manifest = std::fs::read_to_string(project.join("agenv.toml")).unwrap();
+    assert!(!manifest.contains("extra"), "{manifest}");
 
     let _ = std::fs::remove_dir_all(&base);
 }

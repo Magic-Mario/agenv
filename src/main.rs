@@ -30,8 +30,12 @@ enum Command {
     },
     /// Resolve and materialize skills into each harness's skills directory
     Install,
-    /// Reconcile skill directories with the manifest (install + remove stale)
-    Sync,
+    /// Reconcile skill directories with the manifest (adopt unknown skills)
+    Sync {
+        /// Delete skills not in the manifest instead of adopting them
+        #[arg(long)]
+        prune: bool,
+    },
     /// Report drift between manifest, lock, and installed content
     Status,
     /// Re-resolve skills to the latest commit of their ref
@@ -54,7 +58,7 @@ fn main() {
             path.as_deref(),
         ),
         Command::Install => commands::install::run(),
-        Command::Sync => commands::sync::run(),
+        Command::Sync { prune } => commands::sync::run(prune),
         Command::Status => commands::status::run(),
         Command::Update { name } => commands::update::run(name.as_deref()),
     };

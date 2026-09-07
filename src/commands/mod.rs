@@ -12,7 +12,9 @@ use anyhow::{Context, Result};
 use walkdir::WalkDir;
 
 use crate::lock::{Lock, LockedSkill};
-use crate::manifest::{validate_harness, validate_skill, Manifest, HARNESSES};
+use crate::manifest::{
+    is_local_source, validate_harness, validate_skill, Manifest, HARNESSES, SKILLS_DIR,
+};
 use crate::resolver;
 
 pub fn manifest_path() -> PathBuf {
@@ -36,22 +38,28 @@ pub fn harness_base(harness: &str) -> Result<&'static str> {
         })
 }
 
+/// Refuse to operate through a symlinked path component (a shared/malicious
+/// repo could point `base`, `skills`, or a local source elsewhere and turn
+/// materialize/prune/vendor into writes/deletes/reads outside the project).
+fn ensure_not_symlink(path: &Path) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let meta =
+        fs::symlink_metadata(path).with_context(|| format!("checking {}", path.display()))?;
+    if meta.file_type().is_symlink() {
+        anyhow::bail!("refusing to operate through symlink {}", path.display());
+    }
+    Ok(())
+}
+
 /// The `<base>/skills` directory for a harness, refusing to operate through a
-/// symlinked `base` or `skills` component (a shared/malicious repo could point
-/// them elsewhere and turn materialize/prune into writes/deletes outside the
-/// project).
+/// symlinked `base` or `skills` component.
 pub fn checked_skills_dir(harness: &str) -> Result<PathBuf> {
     let base = PathBuf::from(harness_base(harness)?);
     let skills = base.join("skills");
-    for dir in [&base, &skills] {
-        if dir.exists() {
-            let meta =
-                fs::symlink_metadata(dir).with_context(|| format!("checking {}", dir.display()))?;
-            if meta.file_type().is_symlink() {
-                anyhow::bail!("refusing to operate through symlink {}", dir.display());
-            }
-        }
-    }
+    ensure_not_symlink(&base)?;
+    ensure_not_symlink(&skills)?;
     Ok(skills)
 }
 
@@ -59,6 +67,38 @@ pub fn skill_dir(harness: &str, name: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(harness_base(harness)?)
         .join("skills")
         .join(name))
+}
+
+/// The project's local skills source dir (`skills/`), refusing to operate
+/// through a symlinked `skills/` component.
+pub fn checked_local_skills_dir() -> Result<PathBuf> {
+    let dir = PathBuf::from(SKILLS_DIR);
+    ensure_not_symlink(&dir)?;
+    Ok(dir)
+}
+
+/// Resolve a local skill source to a path, refusing any symlinked path component
+/// (so a committed `skills -> /etc` link can't make materialize read outside).
+pub fn checked_local_source(source: &str) -> Result<PathBuf> {
+    let path = PathBuf::from(source);
+    let mut cur = PathBuf::new();
+    for comp in path.components() {
+        cur.push(comp.as_os_str());
+        ensure_not_symlink(&cur)?;
+    }
+    Ok(path)
+}
+
+/// Copy a skill directory into `skills/<name>/` (vendor it into the project).
+pub fn vendor_skill(from: &Path, name: &str) -> Result<()> {
+    let base = checked_local_skills_dir()?;
+    let dest = base.join(name);
+    ensure_not_symlink(&dest)?;
+    if dest.exists() {
+        fs::remove_dir_all(&dest).with_context(|| format!("removing {}", dest.display()))?;
+    }
+    fs::create_dir_all(&base).with_context(|| format!("creating {}", base.display()))?;
+    copy_tree(from, &dest)
 }
 
 pub fn materialize(tree: &Path, harness: &str, name: &str) -> Result<()> {
@@ -100,15 +140,17 @@ pub fn materialize_all(
 pub fn resolve_manifest(manifest: &Manifest) -> Result<(Lock, Vec<(String, PathBuf)>)> {
     validate_harness(&manifest.harness)?;
 
-    let mut lock = Lock::load(&lock_path())?.unwrap_or(Lock {
-        version: 1,
-        skills: Vec::new(),
-    });
+    let mut lock = Lock::load(&lock_path())?.unwrap_or_default();
 
     let mut resolved: Vec<(String, PathBuf)> = Vec::new();
 
     for (name, spec) in &manifest.skills {
         validate_skill(name, spec)?;
+        if is_local_source(&spec.source) {
+            lock.remove(name);
+            resolved.push((name.clone(), checked_local_source(&spec.source)?));
+            continue;
+        }
         let locked = lock.get(name);
         let frozen = locked
             .filter(|l| l.source == spec.source && l.r#ref == spec.r#ref && l.path == spec.path);

@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::checksum;
 use crate::commands::{lock_path, manifest_path, skill_dir};
 use crate::lock::{Lock, LockedSkill};
-use crate::manifest::{validate_harness, Manifest};
+use crate::manifest::{is_local_source, validate_harness, Manifest};
 
 pub fn run() -> Result<()> {
     let manifest = Manifest::load(&manifest_path())?;
@@ -18,6 +18,16 @@ pub fn run() -> Result<()> {
     lock_names.sort_unstable();
 
     for (name, spec) in &manifest.skills {
+        if is_local_source(&spec.source) {
+            for harness in &manifest.harness {
+                let dir = skill_dir(harness, name)?;
+                if !dir.exists() {
+                    println!("missing: {name} ({harness} not materialized)");
+                    drift = true;
+                }
+            }
+            continue;
+        }
         match locked.iter().find(|s| s.name == *name) {
             None => {
                 println!("added:   {name}");
