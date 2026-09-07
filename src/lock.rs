@@ -50,6 +50,19 @@ impl Lock {
             None => self.skills.push(skill),
         }
     }
+
+    pub fn remove(&mut self, name: &str) {
+        self.skills.retain(|s| s.name != name);
+    }
+}
+
+impl Default for Lock {
+    fn default() -> Self {
+        Lock {
+            version: 1,
+            skills: Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]

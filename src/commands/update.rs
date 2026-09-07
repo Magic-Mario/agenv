@@ -2,16 +2,13 @@ use anyhow::Result;
 
 use crate::commands::{lock_path, manifest_path, materialize_all};
 use crate::lock::{Lock, LockedSkill};
-use crate::manifest::{validate_harness, validate_skill, Manifest};
+use crate::manifest::{is_local_source, validate_harness, validate_skill, Manifest};
 use crate::resolver;
 
 pub fn run(name: Option<&str>) -> Result<()> {
     let manifest = Manifest::load(&manifest_path())?;
     validate_harness(&manifest.harness)?;
-    let mut lock = Lock::load(&lock_path())?.unwrap_or(Lock {
-        version: 1,
-        skills: Vec::new(),
-    });
+    let mut lock = Lock::load(&lock_path())?.unwrap_or_default();
 
     let targets: Vec<String> = match name {
         Some(n) => {
@@ -27,6 +24,10 @@ pub fn run(name: Option<&str>) -> Result<()> {
     for n in &targets {
         let spec = &manifest.skills[n];
         validate_skill(n, spec)?;
+        if is_local_source(&spec.source) {
+            println!("local: {n} (nothing to update)");
+            continue;
+        }
         let r = resolver::resolve_tree(&spec.source, &spec.r#ref, spec.path.as_deref())?;
         let entry = LockedSkill {
             name: n.clone(),

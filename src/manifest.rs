@@ -17,7 +17,7 @@ pub struct Manifest {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub struct SkillSpec {
     pub source: String,
-    #[serde(rename = "ref")]
+    #[serde(rename = "ref", default)]
     pub r#ref: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
@@ -42,6 +42,22 @@ pub fn validate_skill(name: &str, spec: &SkillSpec) -> Result<()> {
             "invalid skill name '{name}': must be a single path component (no '/' or '\\', not '.' or '..')"
         );
     }
+    if let Some(path) = &spec.path {
+        if !is_safe_path(path) {
+            anyhow::bail!(
+                "invalid path '{path}' for skill '{name}': must be a relative path without '..'"
+            );
+        }
+    }
+    if is_local_source(&spec.source) {
+        if !is_safe_path(&spec.source) {
+            anyhow::bail!(
+                "invalid local source '{}' for skill '{name}': must be a relative path without '..'",
+                spec.source
+            );
+        }
+        return Ok(());
+    }
     if !is_git_source(&spec.source) {
         anyhow::bail!(
             "source '{}' is not a git repository",
@@ -51,18 +67,20 @@ pub fn validate_skill(name: &str, spec: &SkillSpec) -> Result<()> {
     if spec.r#ref.trim().is_empty() {
         anyhow::bail!("skill '{}' has an empty ref", name);
     }
-    if let Some(path) = &spec.path {
-        if !is_safe_path(path) {
-            anyhow::bail!(
-                "invalid path '{path}' for skill '{name}': must be a relative path without '..'"
-            );
-        }
-    }
     Ok(())
 }
 
 /// Single source of truth: harness name -> base directory.
 pub const HARNESSES: &[(&str, &str)] = &[("claude-code", ".claude"), ("opencode", ".opencode")];
+
+/// Project-level directory that holds local (non-git) skills, git-tracked and
+/// outside the harness config dirs.
+pub const SKILLS_DIR: &str = "skills";
+
+/// The relative manifest `source` for a local skill named `name`.
+pub fn local_source(name: &str) -> String {
+    format!("./{SKILLS_DIR}/{name}")
+}
 
 pub fn supported_harnesses() -> String {
     HARNESSES
@@ -88,14 +106,17 @@ pub fn validate_harness(harness: &[String]) -> Result<()> {
 }
 
 fn is_safe_path(path: &str) -> bool {
-    !path.is_empty()
-        && !path.starts_with('/')
-        && !path.starts_with('\\')
-        && !path.contains(':')
-        && path.split(['/', '\\']).all(|c| c != "..")
+    if path.is_empty() || path.starts_with('/') || path.starts_with('\\') || path.contains(':') {
+        return false;
+    }
+    // ponytail: rejects `..` and a path with no real component (e.g. "."). A
+    // Windows component that normalizes to ".." (trailing space/dot) is not
+    // detected here — canonicalize+containment would be the full fix if needed.
+    let components: Vec<&str> = path.split(['/', '\\']).collect();
+    components.iter().all(|c| *c != "..") && components.iter().any(|c| !c.is_empty() && *c != ".")
 }
 
-fn is_safe_name(name: &str) -> bool {
+pub(crate) fn is_safe_name(name: &str) -> bool {
     !name.is_empty()
         && name != "."
         && name != ".."
@@ -112,16 +133,35 @@ pub fn is_git_source(source: &str) -> bool {
         return true;
     }
     let path = Path::new(source);
-    if path.exists() {
-        return Command::new("git")
-            .arg("-C")
-            .arg(path)
-            .args(["rev-parse", "--git-dir"])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
+    if !path.is_dir() {
+        return false;
     }
-    false
+    // A path is a git source only if it is its own repo (root / bare), not a
+    // subdir of some other repo (e.g. the project's own `skills/`).
+    // `git rev-parse --show-cdup` is empty exactly at the work-tree root; for a
+    // bare repo it fails, so fall back to `--is-bare-repository`.
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(["rev-parse", "--show-cdup"])
+        .output();
+    if let Ok(out) = out {
+        if out.status.success() {
+            return String::from_utf8_lossy(&out.stdout).trim().is_empty();
+        }
+    }
+    Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(["rev-parse", "--is-bare-repository"])
+        .output()
+        .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "true")
+        .unwrap_or(false)
+}
+
+/// A local source is an existing directory that is not itself a git repo.
+pub fn is_local_source(source: &str) -> bool {
+    !is_git_source(source) && Path::new(source).is_dir()
 }
 
 #[cfg(test)]
@@ -215,5 +255,61 @@ harness = "claude-code"
                 "name {bad:?} should be rejected"
             );
         }
+    }
+
+    #[test]
+    fn local_source_detection() {
+        let tmp = std::env::temp_dir().join(format!("agenv-local-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let s = tmp.to_string_lossy().into_owned();
+        assert!(is_local_source(&s));
+        assert!(!is_git_source(&s));
+        assert!(!is_local_source("https://github.com/a/b"));
+        assert!(!is_local_source("does-not-exist"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn subdir_of_repo_is_not_git_source() {
+        use std::process::Command;
+        let tmp = std::env::temp_dir().join(format!("agenv-repo-{}", std::process::id()));
+        let sub = tmp.join("sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        let inited = Command::new("git")
+            .arg("-C")
+            .arg(&tmp)
+            .args(["init", "-q"])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if inited {
+            let s = tmp.to_string_lossy().into_owned();
+            assert!(is_git_source(&s));
+            assert!(!is_local_source(&s));
+            let sub_s = sub.to_string_lossy().into_owned();
+            assert!(!is_git_source(&sub_s), "subdir must not be a git source");
+            assert!(is_local_source(&sub_s));
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn local_source_safe_path_rules() {
+        assert!(is_safe_path("./skills/foo"));
+        assert!(!is_safe_path("/abs/path"));
+        assert!(!is_safe_path("../escape"));
+        assert!(!is_safe_path(r"C:\abs"));
+    }
+
+    #[test]
+    fn local_source_skips_git_checks() {
+        let tmp = std::env::temp_dir().join(format!("agenv-localspec-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let s = tmp.to_string_lossy().into_owned();
+        // absolute path is rejected because local sources must be relative
+        assert!(validate_skill("ok", &spec(&s, "", None)).is_err());
+        // an empty ref on a git source is still rejected
+        assert!(validate_skill("ok", &spec("git@github.com:a/b", "", None)).is_err());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }
