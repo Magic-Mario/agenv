@@ -83,12 +83,14 @@ fn adopt(manifest: &mut Manifest) -> Result<usize> {
                 source: l.source.clone(),
                 r#ref: l.r#ref.clone(),
                 path: l.path.clone(),
+                ..Default::default()
             }
         } else if local_dir.join(&name).is_dir() {
             SkillSpec {
                 source: local_source(&name),
                 r#ref: String::new(),
                 path: None,
+                ..Default::default()
             }
         } else {
             let src = harness_dir_with(&manifest.harness, &name)?
@@ -99,6 +101,7 @@ fn adopt(manifest: &mut Manifest) -> Result<usize> {
                 source: local_source(&name),
                 r#ref: String::new(),
                 path: None,
+                ..Default::default()
             }
         };
         println!("adopted {name}");

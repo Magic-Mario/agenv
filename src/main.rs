@@ -27,6 +27,14 @@ enum Command {
         git_ref: Option<String>,
         #[arg(long = "path")]
         path: Option<String>,
+        #[arg(long = "description")]
+        description: Option<String>,
+        #[arg(long = "license")]
+        license: Option<String>,
+        #[arg(long = "version")]
+        version: Option<String>,
+        #[arg(long = "homepage")]
+        homepage: Option<String>,
     },
     /// Resolve and materialize skills into each harness's skills directory
     Install,
@@ -51,11 +59,21 @@ fn main() {
             source,
             git_ref,
             path,
+            description,
+            license,
+            version,
+            homepage,
         } => commands::add::run(
             name.as_deref(),
             &source,
             git_ref.as_deref(),
             path.as_deref(),
+            commands::add::Meta {
+                description,
+                license,
+                version,
+                homepage,
+            },
         ),
         Command::Install => commands::install::run(),
         Command::Sync { prune } => commands::sync::run(prune),

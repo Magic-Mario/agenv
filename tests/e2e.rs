@@ -162,6 +162,62 @@ fn full_flow() {
 }
 
 #[test]
+fn add_metadata_round_trips() {
+    let base = temp_base("metadata");
+    let src = make_source(&base);
+    let project = base.join("project");
+    let store = base.join("store");
+    std::fs::create_dir_all(&project).unwrap();
+    let source = src.to_string_lossy().into_owned();
+
+    assert!(run(&project, &store, &["init"]).status.success());
+    let out = run(
+        &project,
+        &store,
+        &[
+            "add",
+            "foo",
+            "--source",
+            &source,
+            "--ref",
+            "v1.0.0",
+            "--description",
+            "Reviews Rust",
+            "--license",
+            "MIT",
+            "--version",
+            "1.2.3",
+            "--homepage",
+            "https://example.com",
+        ],
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let manifest = std::fs::read_to_string(project.join("agenv.toml")).unwrap();
+    assert!(manifest.contains("[skills]"), "{manifest}");
+    assert!(!manifest.contains("[skills.foo]"), "{manifest}");
+    assert!(
+        manifest.contains("description = \"Reviews Rust\""),
+        "{manifest}"
+    );
+    assert!(manifest.contains("version = \"1.2.3\""), "{manifest}");
+
+    // install must preserve metadata in the manifest
+    assert!(run(&project, &store, &["install"]).status.success());
+    let manifest = std::fs::read_to_string(project.join("agenv.toml")).unwrap();
+    assert!(
+        manifest.contains("homepage = \"https://example.com\""),
+        "{manifest}"
+    );
+
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
 fn deterministic_lock() {
     let base = temp_base("deterministic");
     let src = make_source(&base);
@@ -424,7 +480,8 @@ fn sync_adopts_harness_skill_vendors() {
     );
 
     let manifest = std::fs::read_to_string(project.join("agenv.toml")).unwrap();
-    assert!(manifest.contains("[skills.stray]"), "{manifest}");
+    assert!(manifest.contains("[skills]"), "{manifest}");
+    assert!(manifest.contains("stray = {"), "{manifest}");
     assert!(
         manifest.contains("source = \"./skills/stray\""),
         "{manifest}"
