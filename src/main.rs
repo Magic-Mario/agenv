@@ -17,7 +17,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Create agenv.toml in the current directory
-    Init,
+    Init {
+        /// Harness(s) to target (repeatable); defaults to claude-code
+        #[arg(long = "harness", value_name = "HARNESS")]
+        harness: Vec<String>,
+    },
     /// Add a skill dependency
     Add {
         name: Option<String>,
@@ -40,12 +44,23 @@ enum Command {
     Status,
     /// Re-resolve skills to the latest commit of their ref
     Update { name: Option<String> },
+    /// Manage the harnesses (coding agents) this project targets
+    Harness {
+        #[command(subcommand)]
+        command: HarnessCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum HarnessCommand {
+    /// Add a harness to agenv.toml and .gitignore
+    Add { name: String },
 }
 
 fn main() {
     let cli = Cli::parse();
     let result = match cli.command {
-        Command::Init => commands::init::run(),
+        Command::Init { harness } => commands::init::run(&harness),
         Command::Add {
             name,
             source,
@@ -61,6 +76,9 @@ fn main() {
         Command::Sync { prune } => commands::sync::run(prune),
         Command::Status => commands::status::run(),
         Command::Update { name } => commands::update::run(name.as_deref()),
+        Command::Harness { command } => match command {
+            HarnessCommand::Add { name } => commands::harness::run_add(&name),
+        },
     };
 
     if let Err(err) = result {

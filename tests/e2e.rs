@@ -314,6 +314,78 @@ fn subdirectory_skill() {
     let _ = std::fs::remove_dir_all(&base);
 }
 
+#[test]
+fn harness_add_updates_manifest_and_gitignore() {
+    let base = temp_base("harness-add");
+    let project = base.join("project");
+    let store = base.join("store");
+    std::fs::create_dir_all(&project).unwrap();
+
+    assert!(run(&project, &store, &["init"]).status.success());
+
+    let out = run(&project, &store, &["harness", "add", "opencode"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let manifest = std::fs::read_to_string(project.join("agenv.toml")).unwrap();
+    assert!(manifest.contains("opencode"), "{manifest}");
+    assert!(manifest.contains("claude-code"), "{manifest}");
+
+    let gitignore = std::fs::read_to_string(project.join(".gitignore")).unwrap();
+    assert!(gitignore.contains(".claude/skills/"), "{gitignore}");
+    assert!(gitignore.contains(".opencode/skills/"), "{gitignore}");
+
+    // duplicate add is a no-op, not an error
+    assert!(run(&project, &store, &["harness", "add", "opencode"])
+        .status
+        .success());
+
+    // unknown harness rejected
+    assert!(!run(&project, &store, &["harness", "add", "nope"])
+        .status
+        .success());
+
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn init_with_harness_flag() {
+    let base = temp_base("init-harness");
+    let project = base.join("project");
+    let store = base.join("store");
+    std::fs::create_dir_all(&project).unwrap();
+
+    let out = run(&project, &store, &["init", "--harness", "opencode"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let manifest = std::fs::read_to_string(project.join("agenv.toml")).unwrap();
+    assert!(manifest.contains("opencode"), "{manifest}");
+    assert!(!manifest.contains("claude-code"), "{manifest}");
+
+    let gitignore = std::fs::read_to_string(project.join(".gitignore")).unwrap();
+    assert!(gitignore.contains(".opencode/skills/"), "{gitignore}");
+    assert!(!gitignore.contains(".claude/skills/"), "{gitignore}");
+
+    assert!(project.join(".opencode/skills").is_dir());
+    assert!(!project.join(".claude").exists());
+
+    // unknown harness rejected
+    let bad = base.join("bad");
+    std::fs::create_dir_all(&bad).unwrap();
+    assert!(!run(&bad, &store, &["init", "--harness", "nope"])
+        .status
+        .success());
+
+    let _ = std::fs::remove_dir_all(&base);
+}
+
 fn read_lock_commit(path: &Path) -> String {
     let text = std::fs::read_to_string(path).unwrap();
     let doc: toml::Value = toml::from_str(&text).unwrap();

@@ -1,4 +1,5 @@
 pub mod add;
+pub mod harness;
 pub mod init;
 pub mod install;
 pub mod status;
@@ -19,6 +20,25 @@ use crate::resolver;
 
 pub fn manifest_path() -> PathBuf {
     PathBuf::from("agenv.toml")
+}
+
+/// Append `entry` to `.gitignore` if not already present (idempotent).
+pub fn add_gitignore_entry(gitignore: &Path, entry: &str) -> Result<()> {
+    if !gitignore.exists() {
+        fs::write(gitignore, format!("{entry}\n")).context("writing .gitignore")?;
+        return Ok(());
+    }
+    let content = fs::read_to_string(gitignore).context("reading .gitignore")?;
+    if content.lines().any(|l| l.trim() == entry) {
+        return Ok(());
+    }
+    let mut out = content;
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push_str(&format!("{entry}\n"));
+    fs::write(gitignore, out).context("writing .gitignore")?;
+    Ok(())
 }
 
 pub fn lock_path() -> PathBuf {
