@@ -14,11 +14,19 @@ struct Inferred {
     name: Option<String>,
 }
 
+pub struct Meta {
+    pub description: Option<String>,
+    pub license: Option<String>,
+    pub version: Option<String>,
+    pub homepage: Option<String>,
+}
+
 pub fn run(
     name: Option<&str>,
     source: &str,
     reference: Option<&str>,
     path: Option<&str>,
+    meta: Meta,
 ) -> Result<()> {
     let manifest_path = manifest_path();
     if !manifest_path.exists() {
@@ -69,6 +77,10 @@ pub fn run(
         source: inf.source.clone(),
         r#ref: r#ref.clone(),
         path: path.clone(),
+        description: meta.description,
+        license: meta.license,
+        version: meta.version,
+        homepage: meta.homepage,
     };
     validate_skill(&name, &spec)?;
 

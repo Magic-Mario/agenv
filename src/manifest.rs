@@ -14,13 +14,21 @@ pub struct Manifest {
     pub skills: BTreeMap<String, SkillSpec>,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Default)]
 pub struct SkillSpec {
     pub source: String,
     #[serde(rename = "ref", default)]
     pub r#ref: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub homepage: Option<String>,
 }
 
 impl Manifest {
@@ -31,8 +39,43 @@ impl Manifest {
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
-        let text = toml::to_string_pretty(self).context("serializing manifest")?;
-        fs::write(path, text).with_context(|| format!("writing {}", path.display()))
+        let mut doc = toml_edit::DocumentMut::new();
+        doc["name"] = toml_edit::value(self.name.clone());
+        let mut harness = toml_edit::Array::new();
+        for h in &self.harness {
+            harness.push(h.clone());
+        }
+        doc["harness"] = toml_edit::value(harness);
+        if !self.skills.is_empty() {
+            let mut skills = toml_edit::Table::new();
+            for (name, spec) in &self.skills {
+                let mut t = toml_edit::InlineTable::new();
+                // keep in sync with SkillSpec fields
+                t.insert("source", spec.source.clone().into());
+                t.insert("ref", spec.r#ref.clone().into());
+                if let Some(p) = &spec.path {
+                    t.insert("path", p.clone().into());
+                }
+                if let Some(v) = &spec.description {
+                    t.insert("description", v.clone().into());
+                }
+                if let Some(v) = &spec.license {
+                    t.insert("license", v.clone().into());
+                }
+                if let Some(v) = &spec.version {
+                    t.insert("version", v.clone().into());
+                }
+                if let Some(v) = &spec.homepage {
+                    t.insert("homepage", v.clone().into());
+                }
+                skills.insert(
+                    name,
+                    toml_edit::Item::Value(toml_edit::Value::InlineTable(t)),
+                );
+            }
+            doc["skills"] = toml_edit::Item::Table(skills);
+        }
+        fs::write(path, doc.to_string()).with_context(|| format!("writing {}", path.display()))
     }
 }
 
@@ -42,6 +85,7 @@ pub fn validate_skill(name: &str, spec: &SkillSpec) -> Result<()> {
             "invalid skill name '{name}': must be a single path component (no '/' or '\\', not '.' or '..')"
         );
     }
+    validate_metadata(name, spec)?;
     if let Some(path) = &spec.path {
         if !is_safe_path(path) {
             anyhow::bail!(
@@ -68,6 +112,43 @@ pub fn validate_skill(name: &str, spec: &SkillSpec) -> Result<()> {
         anyhow::bail!("skill '{}' has an empty ref", name);
     }
     Ok(())
+}
+
+fn validate_metadata(name: &str, spec: &SkillSpec) -> Result<()> {
+    if let Some(v) = &spec.description {
+        if v.is_empty() {
+            anyhow::bail!("skill '{}' has an empty description", name);
+        }
+    }
+    if let Some(v) = &spec.license {
+        if v.is_empty() {
+            anyhow::bail!("skill '{}' has an empty license", name);
+        }
+    }
+    if let Some(v) = &spec.version {
+        if !is_semver(v) {
+            anyhow::bail!("skill '{}' has invalid version '{v}'", name);
+        }
+    }
+    if let Some(v) = &spec.homepage {
+        if !is_https_url(v) {
+            anyhow::bail!("skill '{}' homepage must start with https://", name);
+        }
+    }
+    Ok(())
+}
+
+fn is_semver(s: &str) -> bool {
+    let core = s.split(['-', '+']).next().unwrap_or("");
+    let parts: Vec<&str> = core.split('.').collect();
+    parts.len() == 3
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+fn is_https_url(s: &str) -> bool {
+    s.starts_with("https://")
 }
 
 /// Single source of truth: harness name -> base directory.
@@ -181,7 +262,11 @@ mod tests {
             SkillSpec {
                 source: "https://github.com/acme/skills".to_string(),
                 r#ref: "v1.2.0".to_string(),
-                path: None,
+                path: Some("skills/rust".to_string()),
+                description: Some("Reviews Rust".to_string()),
+                license: Some("MIT".to_string()),
+                version: Some("1.2.0".to_string()),
+                homepage: Some("https://example.com".to_string()),
             },
         );
         let manifest = Manifest {
@@ -191,6 +276,27 @@ mod tests {
         };
         let path = tmp_manifest_path("roundtrip");
         manifest.save(&path).unwrap();
+        let loaded = Manifest::load(&path).unwrap();
+        assert_eq!(manifest, loaded);
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("[skills]\n"), "{text}");
+        assert!(!text.contains("[skills.rust-reviewer]"), "{text}");
+        assert!(text.contains("rust-reviewer = {"), "{text}");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn empty_skills_omits_section() {
+        let manifest = Manifest {
+            name: "x".to_string(),
+            harness: vec!["claude-code".to_string()],
+            skills: BTreeMap::new(),
+        };
+        let path = tmp_manifest_path("empty");
+        manifest.save(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("[skills]"), "{text}");
         let loaded = Manifest::load(&path).unwrap();
         assert_eq!(manifest, loaded);
         let _ = std::fs::remove_file(&path);
@@ -233,6 +339,7 @@ harness = "claude-code"
             source: source.to_string(),
             r#ref: reference.to_string(),
             path: path.map(String::from),
+            ..Default::default()
         }
     }
 
@@ -255,6 +362,60 @@ harness = "claude-code"
                 "name {bad:?} should be rejected"
             );
         }
+    }
+
+    #[test]
+    fn metadata_validation() {
+        let ok = spec("git@github.com:a/b", "main", None);
+        assert!(validate_skill("ok", &ok).is_ok());
+
+        let mut bad_version = ok.clone();
+        bad_version.version = Some("not-a-version".to_string());
+        assert!(validate_skill("ok", &bad_version).is_err());
+
+        let mut ok_version = ok.clone();
+        ok_version.version = Some("1.2.3-beta.1+build".to_string());
+        assert!(validate_skill("ok", &ok_version).is_ok());
+
+        let mut bad_homepage = ok.clone();
+        bad_homepage.homepage = Some("ftp://x".to_string());
+        assert!(validate_skill("ok", &bad_homepage).is_err());
+
+        let mut empty_desc = ok.clone();
+        empty_desc.description = Some("".to_string());
+        assert!(validate_skill("ok", &empty_desc).is_err());
+
+        assert!(is_semver("1.2.3"));
+        assert!(is_semver("1.2.3-rc.1+build.5"));
+        assert!(!is_semver("1.2"));
+        assert!(!is_semver("v1.2.3"));
+        assert!(!is_semver(""));
+        assert!(is_https_url("https://example.com"));
+        assert!(!is_https_url("ftp://example.com"));
+    }
+
+    #[test]
+    fn local_source_metadata_is_validated() {
+        let tmp = std::env::temp_dir().join(format!("agenv-meta-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let source = tmp.to_string_lossy().into_owned();
+
+        let mut spec = SkillSpec {
+            source: source.clone(),
+            r#ref: String::new(),
+            path: None,
+            ..Default::default()
+        };
+        spec.version = Some("not-a-version".to_string());
+        let err = validate_skill("ok", &spec).unwrap_err().to_string();
+        assert!(err.contains("version"), "{err}");
+
+        spec.version = None;
+        spec.homepage = Some("ftp://x".to_string());
+        let err = validate_skill("ok", &spec).unwrap_err().to_string();
+        assert!(err.contains("homepage"), "{err}");
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

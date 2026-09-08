@@ -41,7 +41,9 @@ agenv update [my-skill]                        # re-resolve to the latest commit
 `blob`/`tree` URLs. For a plain repo URL it defaults `ref` to the default branch
 and `name` to the repo name; a `path` defaults the name to its last component.
 Pass the name as the first argument (or `--ref`/`--path`) to override, and it
-prompts for a name when it cannot infer one.
+prompts for a name when it cannot infer one. Optional `--description`,
+`--license`, `--version`, and `--homepage` flags record skill metadata in the
+manifest.
 
 `install` materializes each skill into `<harness>/skills/<name>/` from a
 content-addressed store. `harness` is a list; each entry maps to a base
@@ -65,7 +67,9 @@ manifest (it never touches `skills/`).
 ## Files
 
 - `agenv.toml` — hand-authored manifest (`name`, `harness` (a list of harness
-  names), `[skills]` with `source`, `ref`, and optional `path`).
+  names), and a flat `[skills]` table with one inline entry per skill:
+  `"name" = { source, ref, path? }`, plus optional `description`, `license`,
+  `version`, `homepage` metadata).
 - `agenv.lock` — machine-generated lock (`version`, `[[skills]]` with `commit`
   and `checksum`), sorted by name. Commit both to your repo.
 - `skills/` — optional local skill sources (git-tracked), one directory per
@@ -79,6 +83,8 @@ manifest (it never touches `skills/`).
   (relative path, no git) that is copied directly and left out of the lock.
 - `path` points at a skill subdirectory inside a multi-skill repo; omit it when
   the repo root is the skill.
+- Metadata is optional: `version` must be semver-shaped, `homepage` must start
+  with `https://`, and `description`/`license` must be non-empty when set.
 - A locked install is frozen: `install` reuses the locked commit when `source`,
   `ref`, and `path` are unchanged (no network). Only `update` re-resolves.
 - On any checksum mismatch the command aborts without touching the installed
