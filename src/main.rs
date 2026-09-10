@@ -63,12 +63,23 @@ enum Command {
         #[command(subcommand)]
         command: HarnessCommand,
     },
+    /// Manage the content-addressed store cache
+    Store {
+        #[command(subcommand)]
+        command: StoreCommand,
+    },
 }
 
 #[derive(Subcommand)]
 enum HarnessCommand {
     /// Add a harness to agenv.toml and .gitignore
     Add { name: String },
+}
+
+#[derive(Subcommand)]
+enum StoreCommand {
+    /// Delete store entries not referenced by the current lock
+    Prune,
 }
 
 fn main() {
@@ -102,6 +113,9 @@ fn main() {
         Command::Update { name } => commands::update::run(name.as_deref()),
         Command::Harness { command } => match command {
             HarnessCommand::Add { name } => commands::harness::run_add(&name),
+        },
+        Command::Store { command } => match command {
+            StoreCommand::Prune => commands::prune::run(),
         },
     };
 

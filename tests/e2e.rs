@@ -667,3 +667,56 @@ fn install_requirements_file() {
 
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[test]
+fn store_prune_removes_unreferenced_entries() {
+    let base = temp_base("prune");
+    let src = make_source(&base);
+    let project = base.join("project");
+    let store = base.join("store");
+    std::fs::create_dir_all(&project).unwrap();
+    let source = src.to_string_lossy().into_owned();
+
+    assert!(run(&project, &store, &["init"]).status.success());
+    let out = run(
+        &project,
+        &store,
+        &["add", "foo", "--source", &source, "--ref", "v1.0.0"],
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(run(&project, &store, &["install"]).status.success());
+
+    let src_dir = std::fs::read_dir(&store)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    assert!(src_dir.join("repo.git").exists());
+    let commit_dirs: Vec<PathBuf> = std::fs::read_dir(&src_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name() != "repo.git")
+        .map(|e| e.path())
+        .collect();
+    assert_eq!(commit_dirs.len(), 1);
+
+    // still referenced -> prune keeps the entry
+    assert!(run(&project, &store, &["store", "prune"]).status.success());
+    assert!(commit_dirs[0].exists());
+
+    // drop the skill and reinstall to clear the lock, then prune removes it
+    edit_manifest(&project, |m| {
+        m.as_table_mut().unwrap().remove("skills");
+    });
+    assert!(run(&project, &store, &["install"]).status.success());
+
+    assert!(run(&project, &store, &["store", "prune"]).status.success());
+    assert!(!src_dir.exists());
+
+    let _ = std::fs::remove_dir_all(&base);
+}
