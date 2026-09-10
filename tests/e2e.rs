@@ -616,3 +616,54 @@ fn sync_prune_deletes_undeclared() {
 
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[test]
+fn install_requirements_file() {
+    let base = temp_base("requirements");
+    let src_a = make_source(&base);
+    let src_b = base.join("other-skill");
+    std::fs::create_dir_all(&src_b).unwrap();
+    git(&src_b, &["init", "-q"]);
+    git(&src_b, &["config", "user.email", "t@example.com"]);
+    git(&src_b, &["config", "user.name", "t"]);
+    std::fs::write(src_b.join("SKILL.md"), "# other\n").unwrap();
+    git(&src_b, &["add", "."]);
+    git(&src_b, &["commit", "-qm", "init"]);
+
+    let project = base.join("project");
+    let store = base.join("store");
+    std::fs::create_dir_all(&project).unwrap();
+
+    let out = run(&project, &store, &["init"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    std::fs::write(
+        project.join("skills.txt"),
+        format!(
+            "# my skills\n\n{}\n\n{}\n",
+            src_a.display(),
+            src_b.display()
+        ),
+    )
+    .unwrap();
+
+    let out = run(&project, &store, &["install", "-r", "skills.txt"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let manifest = std::fs::read_to_string(project.join("agenv.toml")).unwrap();
+    assert!(manifest.contains("skill-src"), "{manifest}");
+    assert!(manifest.contains("other-skill"), "{manifest}");
+
+    assert!(project.join(".claude/skills/skill-src/SKILL.md").exists());
+    assert!(project.join(".claude/skills/other-skill/SKILL.md").exists());
+
+    let _ = std::fs::remove_dir_all(&base);
+}
