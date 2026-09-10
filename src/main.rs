@@ -5,6 +5,8 @@ mod manifest;
 mod resolver;
 mod store;
 
+use std::path::PathBuf;
+
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -41,7 +43,11 @@ enum Command {
         homepage: Option<String>,
     },
     /// Resolve and materialize skills into each harness's skills directory
-    Install,
+    Install {
+        /// Read skill source URLs (one per line) from a file and add them first
+        #[arg(short = 'r', long = "requirements", value_name = "FILE")]
+        requirements: Option<PathBuf>,
+    },
     /// Reconcile skill directories with the manifest (adopt unknown skills)
     Sync {
         /// Delete skills not in the manifest instead of adopting them
@@ -90,7 +96,7 @@ fn main() {
                 homepage,
             },
         ),
-        Command::Install => commands::install::run(),
+        Command::Install { requirements } => commands::install::run(requirements.as_deref()),
         Command::Sync { prune } => commands::sync::run(prune),
         Command::Status => commands::status::run(),
         Command::Update { name } => commands::update::run(name.as_deref()),
