@@ -1,8 +1,10 @@
+use std::collections::HashSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result};
+use walkdir::WalkDir;
 
 pub fn store_root() -> PathBuf {
     if let Some(dir) = std::env::var_os("AGENV_STORE") {
@@ -112,4 +114,70 @@ pub fn checkout_tree(source: &str, commit: &str) -> Result<PathBuf> {
         anyhow::bail!("failed to extract tree at {commit}");
     }
     Ok(dir)
+}
+
+/// Delete store entries not in `keep` — bare clones and commit worktrees for
+/// `(source, commit)` pairs that no lock references. Returns
+/// `(entries removed, bytes freed)`.
+///
+/// ponytail: the store is global (shared across projects), but this prunes
+/// against the *current* project's lock only. A commit used by another project
+/// is re-fetched on their next install (cache miss, not data loss). A true
+/// global GC would have to scan every project's lock.
+pub fn prune(keep: &HashSet<(String, String)>) -> Result<(u64, u64)> {
+    let root = store_root();
+    if !root.exists() {
+        return Ok((0, 0));
+    }
+
+    let keep_commits: HashSet<(String, String)> = keep
+        .iter()
+        .map(|(source, commit)| (sha256_hex(source), commit.clone()))
+        .collect();
+    let keep_sources: HashSet<String> = keep_commits.iter().map(|(s, _)| s.clone()).collect();
+
+    let mut removed = 0u64;
+    let mut freed = 0u64;
+
+    for entry in fs::read_dir(&root).context("reading store")? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let source_dir = entry.path();
+        let hash = entry.file_name().to_string_lossy().into_owned();
+
+        if !keep_sources.contains(&hash) {
+            freed += dir_size(&source_dir);
+            removed += 1;
+            fs::remove_dir_all(&source_dir)
+                .with_context(|| format!("removing {}", source_dir.display()))?;
+            continue;
+        }
+
+        for child in fs::read_dir(&source_dir)? {
+            let child = child?;
+            let name = child.file_name().to_string_lossy().into_owned();
+            if name == "repo.git" || !child.file_type()?.is_dir() {
+                continue;
+            }
+            if !keep_commits.contains(&(hash.clone(), name)) {
+                freed += dir_size(&child.path());
+                removed += 1;
+                fs::remove_dir_all(child.path())
+                    .with_context(|| format!("removing {}", child.path().display()))?;
+            }
+        }
+    }
+
+    Ok((removed, freed))
+}
+
+fn dir_size(path: &Path) -> u64 {
+    WalkDir::new(path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .map(|e| e.metadata().map(|m| m.len()).unwrap_or(0))
+        .sum()
 }
