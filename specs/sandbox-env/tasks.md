@@ -2,12 +2,13 @@
 
 ## Phase 1 — Declaration
 
-- [ ] **T1** — `src/manifest.rs`: add `SandboxSpec` and `NetworkSpec` and
+- [x] **T1** — `src/manifest.rs`: add `SandboxSpec` and `NetworkSpec` and
   `Manifest.sandbox: Option<SandboxSpec>` with the documented defaults; serialize
   it in `Manifest::save` and omit the section when absent. Round-trip unit test
   for a manifest with and without `[sandbox]` (R1).
   - depends on: none
-- [ ] **T2** — `src/manifest.rs`: `validate_sandbox` — required `image`; `timeout`
+  - result: PASS — `SandboxSpec`/`NetworkSpec` at `src/manifest.rs:38,78`; `Manifest.sandbox` is `Option<SandboxSpec>` with `skip_serializing_if = "Option::is_none"` (`:15`); `save` emits the table at `:172` and omits it when `None`. Both required tests exist: `sandbox_round_trip` (`:775`) and `sandbox_absent_is_omitted` (`:815`) assert full `Manifest` equality across save→load (behaviour, not formatting — the header `.contains("[sandbox]")` assert is additional); `sandbox_defaults_are_applied` (`:831`) pins the documented defaults. Reproduced in `/tmp/opencode/sbx-roundtrip`: a CLI load→save→load via `agenv add` kept the `[sandbox]` block byte-identical and re-loaded via `install` (exit 0); a no-sandbox manifest stayed clean. `cargo test` 26 unit (4 sandbox) + 15 e2e pass.
+- [x] **T2** — `src/manifest.rs`: `validate_sandbox` — required `image`; `timeout`
   as duration or positive integer seconds; positive `resources` values;
   `skills_root` a safe relative path and `workdir` absolute; `default_action` in
   `{allow, deny}`; `allow`/`deny` entries as dotted domain, wildcard domain, IP,
@@ -17,6 +18,7 @@
   reject the same inputs — `sandbox request` calls it directly instead (see T4).
   - depends on: T1
   - note: unit tests for each rejection, including `MY_KEY = "oops"`.
+  - result: PASS — `validate_sandbox` (`src/manifest.rs:333`) enforces every R2/R3/R4 rule; wired into the shared path via `resolve_manifest` at `src/commands/mod.rs:164` (used by `install`/`sync`), with `update` calling it directly at `src/commands/update.rs:13`. Reproduced at HEAD with `target/release/agenv` in `/tmp/opencode/sbx-verify`: R2 (no `image` → exit 1, `missing field \`image\``), each R3 rejection (timeout `soon`, `skills_root ../etc`, `workdir /../etc`, `default_action maybe`, `allow ["not a domain"]`, `allow ["*.1.2.3.4"]`, `cpu "1e3"`, env key with a space) exits 1 naming the field, and R4 rejects `MY_KEY = "oops"` / `MY_KEY = "sk-ant-live-…"` naming the key and the `env:REAL_VAR` form without echoing the value, while `MY_KEY = "env:THE_REAL_VAR"` is accepted (exit 0); an unquoted pasted secret fails at parse with position only (`src/manifest.rs:122`). Note on the wiring text: `bundle` and `sandbox request` do not exist yet (T6/T4) — `bundle` will inherit the shared path by reusing `resolve_manifest`, so this clause is anticipatory, not drift; `update` plus `install`/`sync` all reject the same inputs. R5–R13 are T3–T6, out of reach at this HEAD. `cargo fmt --check` clean, `cargo clippy --all-targets` 0 warnings, 26 + 15 tests pass.
 
 ## Phase 2 — Emission
 
