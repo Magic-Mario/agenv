@@ -45,7 +45,8 @@ documents, it does not create, connect to, or manage a sandbox.
   `image` (string), `timeout` (string), `skills_root` (string, default
   `.agents/skills`), `workdir` (string, default `/workspace`),
   `credential_proxy` (bool, default false), `resources` (`cpu`/`memory`),
-  `[sandbox.env]` (KEY → `{ ref = "<indirection>" }`), and `[sandbox.network]`
+  `[sandbox.env]` (KEY → indirection string `"env:NAME"`), and
+  `[sandbox.network]`
   (`default_action`, `allow`, `deny`). A manifest without `[sandbox]` SHALL
   load and behave exactly as today.
 - **R2** — `[sandbox].image` SHALL be required whenever `[sandbox]` is present;
@@ -57,10 +58,12 @@ documents, it does not create, connect to, or manage a sandbox.
   or `workdir` that is not absolute; a `default_action` other than `allow` or
   `deny`; and a `network.allow`/`deny` entry that is not a dotted domain,
   wildcard domain, IP, or CIDR.
-- **R4** — Every value in `[sandbox.env]` SHALL be an indirection
-  (`{ ref = "..." }`). A literal value SHALL be a validation error. `agenv` never
-  holds a secret; a value that must reach the sandbox is resolved by whoever
-  consumes the output, not by `agenv`.
+- **R4** — Every value in `[sandbox.env]` SHALL be an indirection of the form
+  `env:<NAME>`, where `<NAME>` is an environment-variable name. Any other value
+  SHALL be a validation error, and the error SHALL name the key and the accepted
+  form **without echoing the value**. `agenv` never holds a secret, and it must
+  never print one either: a value that must reach the sandbox is resolved by
+  whoever consumes the output, not by `agenv`.
 
 ### `agenv sandbox request`
 
@@ -118,7 +121,9 @@ documents, it does not create, connect to, or manage a sandbox.
 - R2: `[sandbox]` with no `image` → non-zero exit naming `image`.
 - R3: `timeout = "soon"`, `skills_root = "../etc"`,
   `default_action = "maybe"` and `allow = ["not a domain"]` are each rejected.
-- R4: `[sandbox.env] MY_KEY = "oops"` is rejected; `{ ref = "env:MY_KEY" }` is accepted.
+- R4: `[sandbox.env] MY_KEY = "oops"` and `MY_KEY = "sk-ant-live-…"` are rejected
+  by validation with a message that names the key, shows the `env:REAL_VAR` form,
+  and does not contain the value; `MY_KEY = "env:THE_REAL_VAR"` is accepted.
 - R5: `sandbox request` prints valid JSON; `--out` writes the same bytes to a file.
 - R6: two runs produce byte-identical stdout; the output contains no host path,
   no user name, and no timestamp.

@@ -48,8 +48,12 @@ pub struct SandboxSpec {
     pub credential_proxy: bool,
     #[serde(default)]
     pub resources: BTreeMap<String, String>,
+    /// Values are indirections like `"env:REAL_VAR"`, never values. Enforced by
+    /// `validate_sandbox` rather than by deserialization: a parse error renders
+    /// the offending source line, which would print the very value this rule
+    /// exists to keep out of logs.
     #[serde(default)]
-    pub env: BTreeMap<String, EnvRef>,
+    pub env: BTreeMap<String, String>,
     #[serde(default)]
     pub network: NetworkSpec,
 }
@@ -69,14 +73,6 @@ impl Default for SandboxSpec {
             network: NetworkSpec::default(),
         }
     }
-}
-
-/// `{ ref = "env:MY_KEY" }` — an indirection, never a value. A literal here
-/// fails to deserialize, so `agenv` cannot hold a secret in the first place.
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Default)]
-pub struct EnvRef {
-    #[serde(rename = "ref")]
-    pub r#ref: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -187,12 +183,7 @@ fn sandbox_table(sb: &SandboxSpec) -> toml_edit::Table {
     if !sb.env.is_empty() {
         let mut env = toml_edit::Table::new();
         for (k, v) in &sb.env {
-            let mut reference = toml_edit::InlineTable::new();
-            reference.insert("ref", v.r#ref.clone().into());
-            env.insert(
-                k,
-                toml_edit::Item::Value(toml_edit::Value::InlineTable(reference)),
-            );
+            env.insert(k, toml_edit::value(v.clone()));
         }
         t.insert("env", toml_edit::Item::Table(env));
     }
@@ -368,17 +359,32 @@ pub fn validate_sandbox(sandbox: &Option<SandboxSpec>) -> Result<()> {
             );
         }
     }
-    // A literal env value cannot even deserialize into `EnvRef`; this catches the
-    // empty indirection, which would otherwise emit a value-less reference.
+    // Deliberately a plain string type and a validation rule, not a typed
+    // struct: rejecting here during deserialization would be caught by the TOML
+    // parser, whose error prints the offending source line — the secret itself.
     for (key, value) in &sb.env {
-        if value.r#ref.trim().is_empty() {
+        if !is_indirection(value) {
             anyhow::bail!(
-                "sandbox.env.{key} needs an indirection, e.g. {{ ref = \"env:{key}\" }}; \
+                "sandbox.env.{key} must be an indirection like \"env:REAL_VAR\"; \
                  agenv never stores a secret value"
             );
         }
     }
     Ok(())
+}
+
+/// `env:NAME` — a scheme plus an environment-variable name. A raw token cannot
+/// satisfy this by accident, which is what makes the rule testable.
+fn is_indirection(s: &str) -> bool {
+    let Some(name) = s.strip_prefix("env:") else {
+        return false;
+    };
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// `45s`, `30m`, `1h`, or a bare number of seconds.
@@ -726,9 +732,7 @@ harness = "claude-code"
         let mut env = BTreeMap::new();
         env.insert(
             "ANTHROPIC_API_KEY".to_string(),
-            EnvRef {
-                r#ref: "env:ANTHROPIC_API_KEY".to_string(),
-            },
+            "env:ANTHROPIC_API_KEY".to_string(),
         );
 
         let manifest = Manifest {
@@ -756,7 +760,7 @@ harness = "claude-code"
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("[sandbox]"), "{text}");
         assert!(
-            text.contains("ANTHROPIC_API_KEY = { ref = \"env:ANTHROPIC_API_KEY\" }"),
+            text.contains("ANTHROPIC_API_KEY = \"env:ANTHROPIC_API_KEY\""),
             "{text}"
         );
         assert!(validate_sandbox(&manifest.sandbox).is_ok());
@@ -844,12 +848,15 @@ harness = "claude-code"
                 ..ok.clone()
             },
             SandboxSpec {
-                env: BTreeMap::from([(
-                    "MY_KEY".to_string(),
-                    EnvRef {
-                        r#ref: String::new(),
-                    },
-                )]),
+                env: BTreeMap::from([("MY_KEY".to_string(), String::new())]),
+                ..ok.clone()
+            },
+            SandboxSpec {
+                env: BTreeMap::from([("MY_KEY".to_string(), "oops".to_string())]),
+                ..ok.clone()
+            },
+            SandboxSpec {
+                env: BTreeMap::from([("MY_KEY".to_string(), "sk-ant-live-0123456789".to_string())]),
                 ..ok.clone()
             },
         ] {
@@ -859,9 +866,27 @@ harness = "claude-code"
             );
         }
 
+        // A literal must be rejected by validation — and by a message that does
+        // not echo the value, because this is the case where the user has just
+        // pasted a real secret into the manifest.
+        let with_literal = SandboxSpec {
+            env: BTreeMap::from([("MY_KEY".to_string(), "sk-ant-live-0123456789".to_string())]),
+            ..ok.clone()
+        };
+        let err = validate_sandbox(&Some(with_literal))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("sandbox.env.MY_KEY"), "{err}");
+        assert!(err.contains("env:REAL_VAR"), "{err}");
+        assert!(
+            !err.contains("sk-ant"),
+            "the message leaks the value: {err}"
+        );
+
         let accepted = SandboxSpec {
             timeout: "45s".to_string(),
             resources: BTreeMap::from([("memory".to_string(), "512Mi".to_string())]),
+            env: BTreeMap::from([("MY_KEY".to_string(), "env:THE_REAL_VAR".to_string())]),
             network: NetworkSpec {
                 default_action: "allow".to_string(),
                 allow: vec![
@@ -874,11 +899,5 @@ harness = "claude-code"
             ..ok.clone()
         };
         assert!(validate_sandbox(&Some(accepted)).is_ok());
-
-        // A literal env value never reaches validation: it is not an `EnvRef`.
-        assert!(toml::from_str::<Manifest>(
-            "name = \"x\"\nharness = [\"claude-code\"]\n\n[sandbox]\nimage = \"alpine\"\n\n[sandbox.env]\nMY_KEY = \"oops\"\n"
-        )
-        .is_err());
     }
 }

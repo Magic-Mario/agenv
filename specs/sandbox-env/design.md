@@ -42,7 +42,7 @@ cpu    = "1"
 memory = "2Gi"
 
 [sandbox.env]
-ANTHROPIC_API_KEY = { ref = "env:ANTHROPIC_API_KEY" }
+ANTHROPIC_API_KEY = "env:ANTHROPIC_API_KEY"
 
 [sandbox.network]
 default_action = "deny"
@@ -69,11 +69,14 @@ pub struct SandboxSpec {
     #[serde(default = "default_workdir")]      pub workdir: String,
     #[serde(default)]                          pub credential_proxy: bool,
     #[serde(default)]                          pub resources: BTreeMap<String, String>,
-    #[serde(default)]                          pub env: BTreeMap<String, EnvRef>,
+    #[serde(default)]                          pub env: BTreeMap<String, String>,
     #[serde(default)]                          pub network: NetworkSpec,
 }
 
-pub struct EnvRef { pub r#ref: String }          // `{ ref = "env:MY_KEY" }`, never a literal
+// `env` values are indirection strings (`"env:REAL_VAR"`), validated by
+// `validate_sandbox` — deliberately not a typed struct, because a
+// deserialization error is rendered by the TOML parser together with the
+// offending source line, which would print the secret this rule protects.
 
 pub struct NetworkSpec {
     #[serde(default = "default_deny")] pub default_action: String,
@@ -89,7 +92,7 @@ Emitted document (`agenv sandbox request`), key names and nesting taken from
 {
   "image": "node:22-bookworm-slim",
   "timeout": 1800,
-  "env": { "ANTHROPIC_API_KEY": "{env:ANTHROPIC_API_KEY}" },
+  "env": { "ANTHROPIC_API_KEY": "env:ANTHROPIC_API_KEY" },
   "resourceLimits": { "cpu": "1", "memory": "2Gi" },
   "networkPolicy": {
     "defaultAction": "deny",
@@ -162,10 +165,14 @@ feature), and no value is derived from the host.
   serialization of it. Creating the sandbox belongs to a later integration spec
   and to a different process (the `osb` CLI or an SDK), which keeps the
   dependency graph and the threat surface of `agenv` unchanged.
-- **env values are refs only (R4).** Literal support was rejected: a tool that
-  never stores a secret cannot leak one, and "is this literal secret-looking?"
-  is a heuristic nobody can test. Non-secret constants belong in the image
-  (`ENV` in a Dockerfile), which is where they are reproducible anyway.
+- **env values are indirections of the form `env:<NAME>` (R4), enforced by
+  validation, not by deserialization.** Two reasons, both learned the hard way:
+  a scheme-prefixed name cannot be satisfied by accident, so a pasted token is
+  rejected rather than accepted as a "reference"; and a deserialization error is
+  rendered by the TOML parser *with the offending source line*, so rejecting
+  there would print the very secret the rule exists to keep out of logs. A
+  literal constant belongs in the image (`ENV` in a Dockerfile), where it is
+  reproducible anyway.
 - **`tar` + `flate2` crates instead of shelling out.** The existing pattern is to
   shell out (`git`) rather than vendor C, but reproducible GNU tar flags
   (`--sort=name --mtime=@0 --owner=0`) do not exist in BSD/macOS tar and Windows
