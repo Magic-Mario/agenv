@@ -193,9 +193,12 @@ feature), and no value is derived from the host.
 - **The bundle carries the sandbox layout only.** A harness-layout bundle would
   duplicate what `install` already produces. If a future phase (image baking)
   needs one, it can add a flag then.
-- **Validation lives in one place.** `validate_sandbox` is called from the same
-  entry point as `validate_harness`/`validate_skill`, so `install`, `sync`,
-  `bundle`, and `sandbox request` all reject a broken `[sandbox]` identically.
+- **Validation lives in one place, with one documented exception.**
+  `validate_sandbox` is called from `resolve_manifest` alongside
+  `validate_harness`, so `install`, `sync`, `update` and `bundle` reject a broken
+  `[sandbox]` identically. `sandbox request` does not travel that path — it reads
+  the manifest and nothing else — so T4 calls `validate_sandbox` directly before
+  emitting; R8 depends on it.
 
 ## Files touched
 

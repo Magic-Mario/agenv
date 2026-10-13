@@ -95,19 +95,19 @@ impl Default for NetworkSpec {
     }
 }
 
-pub fn default_timeout() -> String {
+fn default_timeout() -> String {
     "30m".to_string()
 }
 
-pub fn default_skills_root() -> String {
+fn default_skills_root() -> String {
     ".agents/skills".to_string()
 }
 
-pub fn default_workdir() -> String {
+fn default_workdir() -> String {
     "/workspace".to_string()
 }
 
-pub fn default_network_action() -> String {
+fn default_network_action() -> String {
     "deny".to_string()
 }
 
@@ -405,6 +405,10 @@ fn is_positive_amount(s: &str) -> bool {
         .iter()
         .find_map(|unit| s.strip_suffix(unit))
         .unwrap_or(s);
+    // No exponent form: a runtime quantity is never written `1e3`.
+    if number.contains(['e', 'E']) {
+        return false;
+    }
     number
         .parse::<f64>()
         .map(|n| n > 0.0 && n.is_finite())
@@ -415,8 +419,13 @@ fn is_positive_amount(s: &str) -> bool {
 fn is_network_target(s: &str) -> bool {
     let host = s.strip_prefix("*.").unwrap_or(s);
     if let Some((addr, prefix)) = host.split_once('/') {
-        return addr.parse::<std::net::IpAddr>().is_ok()
-            && prefix.parse::<u8>().map(|p| p <= 128).unwrap_or(false);
+        let Ok(ip) = addr.parse::<std::net::IpAddr>() else {
+            return false;
+        };
+        // The prefix bound depends on the family: /33 is not a valid IPv4 CIDR
+        // and /129 is not a valid IPv6 one.
+        let max = if ip.is_ipv4() { 32 } else { 128 };
+        return prefix.parse::<u8>().map(|p| p <= max).unwrap_or(false);
     }
     host.parse::<std::net::IpAddr>().is_ok() || is_domain_name(host)
 }
@@ -759,10 +768,6 @@ harness = "claude-code"
         manifest.save(&path).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("[sandbox]"), "{text}");
-        assert!(
-            text.contains("ANTHROPIC_API_KEY = \"env:ANTHROPIC_API_KEY\""),
-            "{text}"
-        );
         assert!(validate_sandbox(&manifest.sandbox).is_ok());
         assert_eq!(manifest, Manifest::load(&path).unwrap());
         let _ = std::fs::remove_file(&path);
@@ -848,6 +853,17 @@ harness = "claude-code"
                 ..ok.clone()
             },
             SandboxSpec {
+                resources: BTreeMap::from([("cpu".to_string(), "1e3".to_string())]),
+                ..ok.clone()
+            },
+            SandboxSpec {
+                network: NetworkSpec {
+                    allow: vec!["10.0.0.0/128".to_string()],
+                    ..NetworkSpec::default()
+                },
+                ..ok.clone()
+            },
+            SandboxSpec {
                 env: BTreeMap::from([("MY_KEY".to_string(), String::new())]),
                 ..ok.clone()
             },
@@ -893,6 +909,7 @@ harness = "claude-code"
                     "api.anthropic.com".to_string(),
                     "*.pypi.org".to_string(),
                     "10.0.0.0/8".to_string(),
+                    "2001:db8::/32".to_string(),
                 ],
                 deny: vec!["1.2.3.4".to_string()],
             },

@@ -11,9 +11,10 @@
   as duration or positive integer seconds; positive `resources` values;
   `skills_root` a safe relative path and `workdir` absolute; `default_action` in
   `{allow, deny}`; `allow`/`deny` entries as dotted domain, wildcard domain, IP,
-  or CIDR; every `[sandbox.env]` value an indirection (R2, R3, R4). Wire it into
-  the shared validation path in `src/commands/mod.rs` so `install`, `sync`,
-  `bundle`, and `sandbox request` reject the same inputs.
+  or CIDR (the prefix bound depends on the address family); every
+  `[sandbox.env]` value an indirection (R2, R3, R4). Wire it into the shared
+  validation path in `src/commands/mod.rs` so `install`, `sync` and `bundle`
+  reject the same inputs — `sandbox request` calls it directly instead (see T4).
   - depends on: T1
   - note: unit tests for each rejection, including `MY_KEY = "oops"`.
 
@@ -25,7 +26,9 @@
   omit undeclared keys; `run(out)` writes to stdout or a file (R5, R6).
   - depends on: T2
 - [ ] **T4** — `src/main.rs`: `Sandbox { Request { out } }` subcommand. With no
-  `[sandbox]`, exit non-zero naming the section and write nothing to stdout (R8).
+  `[sandbox]`, exit non-zero naming the section and write nothing to stdout; call
+  `validate_sandbox` directly, because this path does not go through
+  `resolve_manifest` (R8).
   - depends on: T3
 - [ ] **T5** — `Cargo.toml`: add `tar`, `flate2`. `src/bundle.rs` (new):
   deterministic `tar.gz` writer — sorted entries, mtime `0`, uid/gid `0`, empty
