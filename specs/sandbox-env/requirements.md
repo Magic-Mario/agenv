@@ -91,14 +91,16 @@ documents, it does not create, connect to, or manage a sandbox.
   value.
 - **R7** — Field names and value shapes SHALL be validated against
   `specs/sandbox-lifecycle.yml` (upstream), and the document SHALL be accepted by
-  `osb sandbox create -f`. `agenv` SHALL NOT guess a field the schema does not
-  define. The schema's *machine-readable body* governs: its prose calls
-  `entrypoint` (and, in standard mode, `resourceLimits`) required for an image
-  request, and a document carrying neither was measured to be accepted, so that
-  prose is not enforced. A document declaring `credential_proxy` SHALL be read as
-  conditional on a server configured with `[egress] mode = "dns+nft"` — a
-  prerequisite `agenv` cannot check (R14) and therefore documents rather than
-  validates.
+  an `osb sandbox create -f` whose server configuration admits the declared
+  intent. `agenv` SHALL NOT guess a field the schema does not define. The
+  schema's *machine-readable body* governs: its prose calls `entrypoint` (and, in
+  standard mode, `resourceLimits`) required for an image request, and a document
+  carrying neither was measured to be accepted, so that prose is not enforced.
+  Two declared intents depend on server configuration that `agenv` cannot observe
+  (R14 forbids probing it), so they SHALL be documented rather than validated:
+  `credential_proxy` needs `[egress] mode = "dns+nft"`, and `timeout` has to sit
+  under `server.max_sandbox_timeout_seconds` — a bound the schema itself calls
+  server-controlled and publishes no `maximum` for.
 - **R8** — Running the command without `[sandbox]`, or with an invalid
   `[sandbox]`, SHALL exit non-zero with a message naming the field, and SHALL
   write nothing to stdout.

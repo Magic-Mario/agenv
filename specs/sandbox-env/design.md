@@ -252,13 +252,17 @@ feature), and no value is derived from the host.
   was accepted by a live `osb sandbox create -f`, and the sandbox ran. The prose
   is not enforced; agenv keeps not inventing a command. The same measurement
   covers `resourceLimits` being prose-required in standard mode.
-- **`credential_proxy` has a server prerequisite agenv cannot see.** With the
-  default local config (`[egress] mode = "dns"`), a document setting
-  `credentialProxy.enabled` is rejected: *"credentialProxy.enabled requires
-  server [egress].mode = \"dns+nft\""*. That is a property of the deployment, not
-  of the project, and R14 forbids agenv from asking — so the field stays declared
-  intent and the server's error is the feedback. It is worth knowing before
-  turning it on.
+- **`credential_proxy` and a long `timeout` have server prerequisites `agenv`
+  cannot see.** With the default local config (`[egress] mode = "dns"`), a
+  document setting `credentialProxy.enabled` is rejected: *"credentialProxy.enabled
+  requires server [egress].mode = \"dns+nft\""*. And `timeout = "30h"` is rejected
+  with *"Sandbox timeout 108000s exceeds configured maximum of 86400s"*. Both are
+  properties of the deployment, not of the project, and R14 forbids agenv from
+  asking — so the fields stay declared intent and the server's error is the
+  feedback. Notably the schema publishes **no** `maximum` for `timeout` (only a
+  `minimum` of 60; the `86400` bounds in it belong to other schemas), so agenv
+  does not invent a ceiling: doing so would reject manifests a differently tuned
+  server accepts. It is worth knowing both before turning them on.
 - **The egress MVP may ignore IP and CIDR targets.** `NetworkRule.target`'s prose
   says IP/CIDR are not yet supported, while R3 requires `[sandbox]` to accept
   them. It is a string either way, so nothing disagrees in shape — but a declared

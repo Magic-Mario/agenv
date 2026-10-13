@@ -62,9 +62,11 @@
   as the task's evidence (R6, R7, R8). The `entrypoint` question is answered:
   a document declaring neither `entrypoint` nor `resourceLimits` was accepted, so
   the schema's prose about them is not enforced — the check records that
-  measurement instead of re-litigating it. It must also record the
-  `credentialProxy` prerequisite: the server rejects `enabled: true` unless it
-  runs `[egress] mode = "dns+nft"`, which the default local config does not.
+  measurement instead of re-litigating it. It must also record the two server
+  prerequisites it cannot check: `credentialProxy.enabled` requires the server to
+  run `[egress] mode = "dns+nft"` (the default local config does not), and
+  `timeout` must sit under `server.max_sandbox_timeout_seconds` (86400 by
+  default, `30h` measured rejected, and the schema publishes no `maximum`).
   - depends on: T4
 - [ ] **T9** — `README.md`: document `[sandbox]` (every field and its default),
   `agenv bundle` (determinism and what the artifact contains),
