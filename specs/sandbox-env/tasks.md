@@ -22,17 +22,19 @@
 
 ## Phase 2 — Emission
 
-- [ ] **T3** — `Cargo.toml`: add `serde_json`. `src/commands/sandbox.rs` (new):
+- [x] **T3** — `Cargo.toml`: add `serde_json`. `src/commands/sandbox.rs` (new):
   `CreateSandboxRequest` plus `NetworkPolicy`/`NetworkRule`/`CredentialProxy`
   emit structs; duration → seconds normalization; deny rules before allow rules;
   always emit the fail-closed network policy, omit empty collections and a
   disabled credential proxy; `run(out)` writes to stdout or a file (R5, R6).
   - depends on: T2
-- [ ] **T4** — `src/main.rs`: `Sandbox { Request { out } }` subcommand. With no
+  - result: PASS — `serde_json = "1"` in `Cargo.toml`; the four emit structs at `src/commands/sandbox.rs:21,35,42,48`; `duration_seconds` (`src/manifest.rs:430`) normalizes 90s→90, 30m→1800, 1h→3600, bare 120→120; deny is pushed before allow (`sandbox.rs:61-73`; live file: deny line 17 < allow line 21). Reproduced with `target/release/agenv` in `/tmp/opencode/t3t4-verify`: the minimal document (only `image`) always emits `networkPolicy` (`defaultAction: deny`, `egress: []`) and omits `env`/`resourceLimits`/`credentialProxy`; `credential_proxy = true` emits `{"enabled": true}`; `--out` is byte-identical to stdout (`cmp` clean, 0 bytes on stdout). Two runs byte-identical (R6), valid JSON, no host path/user/timestamp, and `env:REAL_VAR` stayed unresolved with the variable set. Note: `egress: []` is the empty collection R5 was amended to always emit, so it is the named exception to the task's "omit empty collections" — the rest of that clause holds. Gates: `cargo fmt --check` clean, `cargo clippy --all-targets` 0 warnings, 29 unit + 17 e2e pass.
+- [x] **T4** — `src/main.rs`: `Sandbox { Request { out } }` subcommand. With no
   `[sandbox]`, exit non-zero naming the section and write nothing to stdout; call
   `validate_sandbox` directly, because this path does not go through
   `resolve_manifest` (R8).
   - depends on: T3
+  - result: PASS — `Sandbox { Request { out } }` declared at `src/main.rs:71,91` and dispatched at `:135`; `run` calls `validate_sandbox` directly at `src/commands/sandbox.rs:107`, before reading `manifest.sandbox` — the path bypasses `resolve_manifest`, which R8 depends on. Reproduced with `target/release/agenv` in `/tmp/opencode/t3t4-verify`: no `[sandbox]` → exit 1, 0 bytes on stdout, stderr `agenv.toml has no [sandbox] section to render`; an invalid `[sandbox]` (`timeout = "45s"`) → exit 1, 0 bytes on stdout, stderr naming the field. `tests/e2e.rs:725` covers both. Gates: `cargo fmt --check` clean, `cargo clippy --all-targets` 0 warnings, 29 unit + 17 e2e pass.
 - [ ] **T5** — `Cargo.toml`: add `tar`, `flate2`. `src/bundle.rs` (new):
   deterministic `tar.gz` writer — sorted entries, mtime `0`, uid/gid `0`, empty
   uname/gname, ustar framing, no pax extras, gzip header `mtime(0)` and a fixed
