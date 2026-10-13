@@ -8,12 +8,18 @@ use serde::Serialize;
 use crate::commands::manifest_path;
 use crate::manifest::{duration_seconds, validate_sandbox, Manifest, SandboxSpec};
 
+/// `image` is the schema's `ImageSpec`, not a bare string: `{ "uri": "…" }`.
+#[derive(Serialize)]
+struct ImageSpec {
+    uri: String,
+}
+
 /// The OpenSandbox `CreateSandboxRequest` wire shape (camelCase), carrying what
 /// `[sandbox]` declares. Field order is this declaration order, so the document
 /// is byte-stable without a `preserve_order` feature.
 #[derive(Serialize)]
 struct CreateSandboxRequest {
-    image: String,
+    image: ImageSpec,
     timeout: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     env: Option<BTreeMap<String, String>>,
@@ -67,7 +73,9 @@ impl CreateSandboxRequest {
         }
 
         Ok(CreateSandboxRequest {
-            image: spec.image.clone(),
+            image: ImageSpec {
+                uri: spec.image.clone(),
+            },
             timeout,
             // An indirection is emitted as the reference it declares — the value
             // it points at is resolved by whoever consumes this document.
@@ -133,7 +141,9 @@ mod tests {
         assert_eq!(
             render(&spec("alpine")),
             r#"{
-  "image": "alpine",
+  "image": {
+    "uri": "alpine"
+  },
   "timeout": 1800,
   "networkPolicy": {
     "defaultAction": "deny",
@@ -166,7 +176,9 @@ mod tests {
         assert_eq!(
             render(&full),
             r#"{
-  "image": "node:22-bookworm-slim",
+  "image": {
+    "uri": "node:22-bookworm-slim"
+  },
   "timeout": 45,
   "env": {
     "ANTHROPIC_API_KEY": "env:ANTHROPIC_API_KEY"

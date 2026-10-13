@@ -777,7 +777,7 @@ fn sandbox_request_renders_the_document() {
     assert_eq!(first.stdout, second.stdout, "two runs must be identical");
 
     let text = String::from_utf8(first.stdout.clone()).unwrap();
-    assert!(text.contains("\"image\": \"alpine\""), "{text}");
+    assert!(text.contains("\"uri\": \"alpine\""), "{text}");
     assert!(text.contains("\"timeout\": 3600"), "{text}");
     assert!(text.contains("\"MY_KEY\": \"env:REAL_VAR\""), "{text}");
     // The declared policy is always sent: omitting it leaves egress open.

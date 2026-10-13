@@ -73,13 +73,15 @@ documents, it does not create, connect to, or manage a sandbox.
   `specs/sandbox-lifecycle.yml` — upstream, not vendored in this repository)
   describing `image`, `timeout`, `env`, `resourceLimits`, `networkPolicy`, and
   `credentialProxy`; `--out <path>` SHALL write the same document to a file
-  instead. The document SHALL state the manifest's *effective* intent rather than
-  only its literal keys: `image`, `timeout` and the network policy are always
-  emitted, because the manifest's own defaults are part of what it declares and
-  because omitting `networkPolicy` leaves the runtime's egress **open** rather
-  than denied. Collections with no entries (`env`, `resourceLimits`, `egress`)
-  SHALL be omitted, and `credentialProxy` SHALL be emitted only when it is
-  enabled — absent and `enabled: false` mean the same thing to the runtime.
+  instead. `image` SHALL be emitted in the schema's `ImageSpec` form (`{uri}`),
+  not as a bare string. The document SHALL state the manifest's *effective*
+  intent rather than only its literal keys: `image`, `timeout` and the network
+  policy are always emitted, because the manifest's own defaults are part of what
+  it declares and because omitting `networkPolicy` leaves the runtime's egress
+  **open** rather than denied. `env` and `resourceLimits` SHALL be omitted when
+  they have no entries; `egress` is always present, being part of the policy that
+  is always emitted. `credentialProxy` SHALL be emitted only when it is enabled —
+  absent and `enabled: false` mean the same thing to the runtime.
 - **R6** — The emitted document SHALL be deterministic: byte-identical for
   identical input, with a fixed field order, no host paths, no user identity, no
   timestamps, and no ambient environment values. An `env` indirection SHALL

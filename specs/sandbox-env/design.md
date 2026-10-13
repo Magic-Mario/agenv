@@ -91,7 +91,7 @@ here):
 
 ```json
 {
-  "image": "node:22-bookworm-slim",
+  "image": { "uri": "node:22-bookworm-slim" },
   "timeout": 1800,
   "env": { "ANTHROPIC_API_KEY": "env:ANTHROPIC_API_KEY" },
   "resourceLimits": { "cpu": "1", "memory": "2Gi" },
@@ -236,11 +236,18 @@ feature), and no value is derived from the host.
 
 ## Risks
 
-- **Wire shape.** The schema types `image` as `ImageSpec` (`{ uri, auth }`) while
-  the CLI takes and returns a bare string (observed in the Phase 0 experiment).
-  The emitted value stays the form the CLI accepts, and T8 records an
-  `osb sandbox create -f` round-trip as evidence; the field is corrected if that
-  check disagrees.
+- **Wire shape.** The schema types `image` as `ImageSpec` (`{ uri, auth }`), and
+  the document emits that form; the CLI also documents accepting a bare string
+  and may normalise it. T8's live `osb sandbox create -f` run is what settles
+  which form the server actually takes.
+- **`entrypoint` is not declared.** The schema's prose and the CLI's example both
+  list `entrypoint` for an image request. Whether the server requires one is
+  settled live in T8; if it does, `[sandbox]` gains a field — agenv does not
+  invent a command to keep a container alive.
+- **The egress MVP may ignore IP and CIDR targets.** `NetworkRule.target`'s prose
+  says IP/CIDR are not yet supported, while R3 requires `[sandbox]` to accept
+  them. It is a string either way, so nothing disagrees in shape — but a declared
+  IP rule may be inert in the runtime.
 - **`ResourceLimits` declares no properties** in the schema, so `[sandbox.resources]`
   is passed through as a string map rather than validated key by key. Only the
   value shape is checked.
