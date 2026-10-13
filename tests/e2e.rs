@@ -782,10 +782,13 @@ fn sandbox_request_renders_the_document() {
     assert!(text.contains("\"MY_KEY\": \"env:REAL_VAR\""), "{text}");
     // The declared policy is always sent: omitting it leaves egress open.
     assert!(text.contains("\"defaultAction\": \"deny\""), "{text}");
-    // Nothing host-derived.
-    assert!(!text.contains("/home/"), "{text}");
+    // Nothing host-derived: neither the project path nor the store.
     assert!(
         !text.contains(&project.to_string_lossy().into_owned()),
+        "{text}"
+    );
+    assert!(
+        !text.contains(&store.to_string_lossy().into_owned()),
         "{text}"
     );
 

@@ -92,6 +92,14 @@ impl CreateSandboxRequest {
     }
 }
 
+/// The document as it is written — stdout and `--out` produce the same bytes.
+fn render_request(spec: &SandboxSpec) -> Result<String> {
+    let mut json = serde_json::to_string_pretty(&CreateSandboxRequest::from_spec(spec)?)
+        .context("serializing the request")?;
+    json.push('\n');
+    Ok(json)
+}
+
 pub fn run(out: Option<&Path>) -> Result<()> {
     let manifest = Manifest::load(&manifest_path())?;
     // This path reads the manifest and nothing else, so it does not go through
@@ -102,9 +110,7 @@ pub fn run(out: Option<&Path>) -> Result<()> {
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("agenv.toml has no [sandbox] section to render"))?;
 
-    let request = CreateSandboxRequest::from_spec(spec)?;
-    let mut json = serde_json::to_string_pretty(&request).context("serializing the request")?;
-    json.push('\n');
+    let json = render_request(spec)?;
 
     match out {
         Some(path) => fs::write(path, json).with_context(|| format!("writing {}", path.display())),
@@ -128,10 +134,7 @@ mod tests {
     }
 
     fn render(spec: &SandboxSpec) -> String {
-        let mut json =
-            serde_json::to_string_pretty(&CreateSandboxRequest::from_spec(spec).unwrap()).unwrap();
-        json.push('\n');
-        json
+        render_request(spec).unwrap()
     }
 
     #[test]
@@ -209,15 +212,10 @@ mod tests {
     }
 
     #[test]
-    fn the_policy_is_fail_closed_and_deny_precedes_allow() {
-        // Emitting no policy at all leaves OpenSandbox egress open, so the
-        // declared default is always sent.
-        let rendered = render(&spec("alpine"));
-        assert!(
-            rendered.contains("\"defaultAction\": \"deny\""),
-            "{rendered}"
-        );
-
+    fn a_deny_rule_precedes_an_allow_rule() {
+        // The wire evaluates egress rules in order and the first match wins, so a
+        // deny has to be able to shadow a broad allow. (The always-present policy
+        // itself is pinned by the minimal-document test.)
         let mut both = spec("alpine");
         both.network = NetworkSpec {
             default_action: "allow".to_string(),
