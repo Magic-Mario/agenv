@@ -67,9 +67,13 @@ manifest (it never touches `skills/`).
 ## Files
 
 - `agenv.toml` — hand-authored manifest (`name`, `harness` (a list of harness
-  names), and a flat `[skills]` table with one inline entry per skill:
+  names), a flat `[skills]` table with one inline entry per skill:
   `"name" = { source, ref, path? }`, plus optional `description`, `license`,
-  `version`, `homepage` metadata).
+  `version`, `homepage` metadata, and an optional `[sandbox]` table). The
+  `[sandbox]` table is accepted and validated (`image` is required when it is
+  present, and `install`, `sync`, and `update` reject an invalid section);
+  nothing acts on it beyond that validation — no command emits a sandbox request
+  or builds a bundle.
 - `agenv.lock` — machine-generated lock (`version`, `[[skills]]` with `commit`
   and `checksum`), sorted by name. Commit both to your repo.
 - `skills/` — optional local skill sources (git-tracked), one directory per

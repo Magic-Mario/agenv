@@ -66,6 +66,13 @@
 
 ## Cross-spec notes
 
+- **Known follow-up, not fixed here (`documentation` found it).** `Lock::load`
+  (`src/lock.rs:33`) still wraps `toml::from_str` in `.with_context`, so a
+  malformed `agenv.lock` prints the parser's rendered source line — and a lock's
+  `source` URL can embed a credential, which is exactly why `store::redact`
+  exists. `Manifest::load` was tightened in this spec (R4's guarantee); the rule
+  should move into one shared helper that both callers use. It is unrelated to
+  `[sandbox]` and is a `src/` behaviour change, so it belongs in its own task.
 - `agenv.schema.json` (owned by `specs/schema-validation`) needs the `[sandbox]`
   table, the same way it needed the flat `[skills]` format.
 - The MCP/hooks/agents spec will extend the bundle's contents and owns harness
