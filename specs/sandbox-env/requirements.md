@@ -53,11 +53,12 @@ documents, it does not create, connect to, or manage a sandbox.
   Its absence SHALL fail the command with a non-zero exit naming the field.
 - **R3** — Validation SHALL reject, before any work: an empty `image`; a
   `timeout` that is neither a duration (`30m`, `1h`, `45s`) nor a positive
-  integer of seconds; a negative, zero, or unbounded `resources.cpu`/`memory`;
-  a `skills_root` that is not a safe relative path (same rule as a skill `path`)
-  or `workdir` that is not absolute; a `default_action` other than `allow` or
-  `deny`; and a `network.allow`/`deny` entry that is not a dotted domain,
-  wildcard domain, IP, or CIDR.
+  integer of seconds; a negative, zero, or exponent-form `resources` value; a
+  `skills_root` that is not a safe relative path (same rule as a skill `path`);
+  a `workdir` that is not absolute or that contains a `..` component; a
+  `default_action` other than `allow` or `deny`; a `network.allow`/`deny` entry
+  that is not a domain, IP, or CIDR, or a wildcard applied to anything other than
+  a domain; and an `[sandbox.env]` key that is not an environment-variable name.
 - **R4** — Every value in `[sandbox.env]` SHALL be an indirection of the form
   `env:<NAME>`, where `<NAME>` is an environment-variable name. Any other value
   SHALL be a validation error, and the error SHALL name the key and the accepted
@@ -119,8 +120,9 @@ documents, it does not create, connect to, or manage a sandbox.
 - R1: a manifest with `[sandbox]` round-trips (load → save → load) unchanged; a
   manifest without it is unaffected.
 - R2: `[sandbox]` with no `image` → non-zero exit naming `image`.
-- R3: `timeout = "soon"`, `skills_root = "../etc"`,
-  `default_action = "maybe"` and `allow = ["not a domain"]` are each rejected.
+- R3: `timeout = "soon"`, `skills_root = "../etc"`, `workdir = "/../etc"`,
+  `default_action = "maybe"`, `allow = ["not a domain"]`, `allow = ["*.1.2.3.4"]`,
+  `cpu = "1e3"` and an `[sandbox.env]` key containing a space are each rejected.
 - R4: `[sandbox.env] MY_KEY = "oops"` and `MY_KEY = "sk-ant-live-…"` are rejected
   by validation with a message that names the key, shows the `env:REAL_VAR` form,
   and does not contain the value; `MY_KEY = "env:THE_REAL_VAR"` is accepted.

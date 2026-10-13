@@ -173,6 +173,13 @@ feature), and no value is derived from the host.
   there would print the very secret the rule exists to keep out of logs. A
   literal constant belongs in the image (`ENV` in a Dockerfile), where it is
   reproducible anyway.
+- **The TOML parser's own error rendering is never surfaced.** `toml`'s `Display`
+  prints the offending *source line*, so any parse error — `MY_KEY = sk-…`
+  pasted without quotes, a malformed line, a credential inside a `source` URL —
+  would print exactly what R4 keeps out of logs. `Manifest::load` therefore
+  reports the parser's message plus a line/column computed from the error's span,
+  and drops the rendered snippet. That keeps the diagnosis (`missing field
+  \`image\``, R2) without the content.
 - **`image` stays a required `String`, so an absent value fails during
   deserialization** (`missing field \`image\``) while `validate_sandbox` rejects a
   present-but-empty one. Typing it `Option<String>` so every message came from
@@ -194,11 +201,11 @@ feature), and no value is derived from the host.
   duplicate what `install` already produces. If a future phase (image baking)
   needs one, it can add a flag then.
 - **Validation lives in one place, with one documented exception.**
-  `validate_sandbox` is called from `resolve_manifest` alongside
-  `validate_harness`, so `install`, `sync`, `update` and `bundle` reject a broken
-  `[sandbox]` identically. `sandbox request` does not travel that path — it reads
-  the manifest and nothing else — so T4 calls `validate_sandbox` directly before
-  emitting; R8 depends on it.
+  `validate_sandbox` sits next to `validate_harness` in `resolve_manifest`, so
+  `install`, `sync` and `bundle` reject a broken `[sandbox]` identically.
+  `update` does not travel that path either, so it calls `validate_sandbox`
+  directly, and `sandbox request` does the same (it reads the manifest and
+  nothing else) — R8 depends on the latter.
 
 ## Files touched
 
@@ -209,6 +216,7 @@ feature), and no value is derived from the host.
 | `src/commands/bundle.rs` | **new** — resolve via `resolve_manifest`, archive, sha256, `--json` |
 | `src/commands/sandbox.rs` | **new** — `CreateSandboxRequest` emit structs, `run(out)` |
 | `src/commands/mod.rs` | `pub mod bundle; pub mod sandbox;`; call `validate_sandbox` in the shared validation path |
+| `src/commands/update.rs` | call `validate_sandbox` next to `validate_harness` — `update` does not travel `resolve_manifest` |
 | `src/main.rs` | `Bundle { out, json }`; `Sandbox { Request { out } }` |
 | `Cargo.toml` | add `serde_json`, `tar`, `flate2` |
 | `tests/e2e.rs` | bundle determinism + contents + abort cases; request determinism + error cases |

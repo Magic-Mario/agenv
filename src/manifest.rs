@@ -115,7 +115,21 @@ impl Manifest {
     pub fn load(path: &Path) -> Result<Manifest> {
         let text =
             fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-        toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+        // `toml`'s Display renders the offending *source line*, which would print
+        // a value pasted where an indirection belongs — or a credential inside a
+        // `source` URL. Report the message and the position instead: same
+        // diagnosis, no content.
+        toml::from_str(&text).map_err(|err| {
+            let at = err.span().map(|span| line_col(&text, span.start));
+            match at {
+                Some((line, column)) => anyhow::anyhow!(
+                    "parsing {}: {} (line {line}, column {column})",
+                    path.display(),
+                    err.message()
+                ),
+                None => anyhow::anyhow!("parsing {}: {}", path.display(), err.message()),
+            }
+        })
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
@@ -343,8 +357,11 @@ pub fn validate_sandbox(sandbox: &Option<SandboxSpec>) -> Result<()> {
             sb.skills_root
         );
     }
-    if !sb.workdir.starts_with('/') {
-        anyhow::bail!("sandbox.workdir '{}' must be an absolute path", sb.workdir);
+    if !sb.workdir.starts_with('/') || sb.workdir.split('/').any(|c| c == "..") {
+        anyhow::bail!(
+            "sandbox.workdir '{}' must be an absolute path without '..'",
+            sb.workdir
+        );
     }
     if !matches!(sb.network.default_action.as_str(), "allow" | "deny") {
         anyhow::bail!(
@@ -363,6 +380,9 @@ pub fn validate_sandbox(sandbox: &Option<SandboxSpec>) -> Result<()> {
     // struct: rejecting here during deserialization would be caught by the TOML
     // parser, whose error prints the offending source line — the secret itself.
     for (key, value) in &sb.env {
+        if !is_env_name(key) {
+            anyhow::bail!("sandbox.env.{key} needs an environment-variable name as its key");
+        }
         if !is_indirection(value) {
             anyhow::bail!(
                 "sandbox.env.{key} must be an indirection like \"env:REAL_VAR\"; \
@@ -373,18 +393,31 @@ pub fn validate_sandbox(sandbox: &Option<SandboxSpec>) -> Result<()> {
     Ok(())
 }
 
-/// `env:NAME` — a scheme plus an environment-variable name. A raw token cannot
-/// satisfy this by accident, which is what makes the rule testable.
-fn is_indirection(s: &str) -> bool {
-    let Some(name) = s.strip_prefix("env:") else {
-        return false;
-    };
+/// A name usable as an environment variable: an ASCII letter or `_`, then word
+/// characters. Both sides of a `[sandbox.env]` entry have to be one — the key is
+/// the name the sandbox sees, the value's suffix is the name to resolve.
+fn is_env_name(name: &str) -> bool {
     let mut chars = name.chars();
     match chars.next() {
         Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
         _ => return false,
     }
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// `env:NAME` — a scheme plus an environment-variable name. A raw token cannot
+/// satisfy this by accident, which is what makes the rule testable.
+fn is_indirection(s: &str) -> bool {
+    s.strip_prefix("env:").is_some_and(is_env_name)
+}
+
+/// 1-based line and column of a byte offset, without rendering any source text.
+fn line_col(text: &str, offset: usize) -> (usize, usize) {
+    let end = offset.min(text.len());
+    let upto = text.get(..end).unwrap_or("");
+    let line = upto.matches('\n').count() + 1;
+    let column = upto.rfind('\n').map_or(end + 1, |i| end - i);
+    (line, column)
 }
 
 /// `45s`, `30m`, `1h`, or a bare number of seconds.
@@ -417,8 +450,13 @@ fn is_positive_amount(s: &str) -> bool {
 
 /// A domain, `*.domain`, an IP, or a CIDR.
 fn is_network_target(s: &str) -> bool {
-    let host = s.strip_prefix("*.").unwrap_or(s);
-    if let Some((addr, prefix)) = host.split_once('/') {
+    // A wildcard only means something for a domain: `*.1.2.3.4` cannot mean what
+    // its author intended. An IP is also syntactically a dotted name, so the
+    // address check has to come first.
+    if let Some(domain) = s.strip_prefix("*.") {
+        return domain.parse::<std::net::IpAddr>().is_err() && is_domain_name(domain);
+    }
+    if let Some((addr, prefix)) = s.split_once('/') {
         let Ok(ip) = addr.parse::<std::net::IpAddr>() else {
             return false;
         };
@@ -427,7 +465,7 @@ fn is_network_target(s: &str) -> bool {
         let max = if ip.is_ipv4() { 32 } else { 128 };
         return prefix.parse::<u8>().map(|p| p <= max).unwrap_or(false);
     }
-    host.parse::<std::net::IpAddr>().is_ok() || is_domain_name(host)
+    s.parse::<std::net::IpAddr>().is_ok() || is_domain_name(s)
 }
 
 fn is_domain_name(s: &str) -> bool {
@@ -864,6 +902,21 @@ harness = "claude-code"
                 ..ok.clone()
             },
             SandboxSpec {
+                workdir: "/../etc".to_string(),
+                ..ok.clone()
+            },
+            SandboxSpec {
+                network: NetworkSpec {
+                    allow: vec!["*.1.2.3.4".to_string()],
+                    ..NetworkSpec::default()
+                },
+                ..ok.clone()
+            },
+            SandboxSpec {
+                env: BTreeMap::from([("bad key".to_string(), "env:REAL".to_string())]),
+                ..ok.clone()
+            },
+            SandboxSpec {
                 env: BTreeMap::from([("MY_KEY".to_string(), String::new())]),
                 ..ok.clone()
             },
@@ -916,5 +969,36 @@ harness = "claude-code"
             ..ok.clone()
         };
         assert!(validate_sandbox(&Some(accepted)).is_ok());
+    }
+
+    #[test]
+    fn parse_errors_report_the_position_without_echoing_the_source() {
+        let path = tmp_manifest_path("no-echo");
+
+        // The realistic mistake: a secret pasted where an indirection belongs,
+        // and not even valid TOML. The TOML parser's own rendering would print
+        // this line, so `load` must not use it.
+        std::fs::write(
+            &path,
+            "name = \"x\"\nharness = [\"claude-code\"]\n\n[sandbox]\nimage = \"alpine\"\n\n[sandbox.env]\nMY_KEY = sk-ant-live-0123456789\n",
+        )
+        .unwrap();
+        let err = Manifest::load(&path).unwrap_err().to_string();
+        assert!(!err.contains("sk-ant"), "the error leaks the value: {err}");
+        assert!(
+            err.contains("line"),
+            "the position is still reported: {err}"
+        );
+
+        // A plain invalid manifest still says which field is missing (R2).
+        std::fs::write(
+            &path,
+            "name = \"x\"\nharness = [\"claude-code\"]\n\n[sandbox]\n",
+        )
+        .unwrap();
+        let err = Manifest::load(&path).unwrap_err().to_string();
+        assert!(err.contains("image"), "{err}");
+
+        let _ = std::fs::remove_file(&path);
     }
 }
