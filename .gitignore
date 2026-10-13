@@ -1,3 +1,4 @@
 /target
-.opencode/
+.opencode/*
+!.opencode/agents/
 opencode.json
