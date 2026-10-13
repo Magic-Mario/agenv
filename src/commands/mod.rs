@@ -15,7 +15,8 @@ use walkdir::WalkDir;
 
 use crate::lock::{Lock, LockedSkill};
 use crate::manifest::{
-    is_local_source, validate_harness, validate_skill, Manifest, HARNESSES, SKILLS_DIR,
+    is_local_source, validate_harness, validate_sandbox, validate_skill, Manifest, HARNESSES,
+    SKILLS_DIR,
 };
 use crate::resolver;
 
@@ -160,6 +161,7 @@ pub fn materialize_all(
 /// lock. Does not save the lock or materialize; shared by `install` and `sync`.
 pub fn resolve_manifest(manifest: &Manifest) -> Result<(Lock, Vec<(String, PathBuf)>)> {
     validate_harness(&manifest.harness)?;
+    validate_sandbox(&manifest.sandbox)?;
 
     let mut lock = Lock::load(&lock_path())?.unwrap_or_default();
 

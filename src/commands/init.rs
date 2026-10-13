@@ -29,6 +29,7 @@ pub fn run(harnesses: &[String]) -> Result<()> {
         name,
         harness,
         skills: BTreeMap::<String, SkillSpec>::new(),
+        sandbox: None,
     };
     manifest.save(&path)?;
 

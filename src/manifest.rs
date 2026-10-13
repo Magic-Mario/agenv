@@ -12,6 +12,8 @@ pub struct Manifest {
     pub harness: Vec<String>,
     #[serde(default)]
     pub skills: BTreeMap<String, SkillSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<SandboxSpec>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Default)]
@@ -29,6 +31,88 @@ pub struct SkillSpec {
     pub version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
+}
+
+/// Declared shape of an isolated runtime (OpenSandbox). `agenv` only describes
+/// it: nothing here creates, connects to, or manages a sandbox.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct SandboxSpec {
+    pub image: String,
+    #[serde(default = "default_timeout")]
+    pub timeout: String,
+    #[serde(default = "default_skills_root")]
+    pub skills_root: String,
+    #[serde(default = "default_workdir")]
+    pub workdir: String,
+    #[serde(default)]
+    pub credential_proxy: bool,
+    #[serde(default)]
+    pub resources: BTreeMap<String, String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, EnvRef>,
+    #[serde(default)]
+    pub network: NetworkSpec,
+}
+
+impl Default for SandboxSpec {
+    /// The serde field defaults, so `SandboxSpec::default()` is a usable value
+    /// (`#[serde(default = "…")]` applies to deserialization only).
+    fn default() -> Self {
+        SandboxSpec {
+            image: String::new(),
+            timeout: default_timeout(),
+            skills_root: default_skills_root(),
+            workdir: default_workdir(),
+            credential_proxy: false,
+            resources: BTreeMap::new(),
+            env: BTreeMap::new(),
+            network: NetworkSpec::default(),
+        }
+    }
+}
+
+/// `{ ref = "env:MY_KEY" }` — an indirection, never a value. A literal here
+/// fails to deserialize, so `agenv` cannot hold a secret in the first place.
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Default)]
+pub struct EnvRef {
+    #[serde(rename = "ref")]
+    pub r#ref: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+pub struct NetworkSpec {
+    #[serde(default = "default_network_action")]
+    pub default_action: String,
+    #[serde(default)]
+    pub allow: Vec<String>,
+    #[serde(default)]
+    pub deny: Vec<String>,
+}
+
+impl Default for NetworkSpec {
+    fn default() -> Self {
+        NetworkSpec {
+            default_action: default_network_action(),
+            allow: Vec::new(),
+            deny: Vec::new(),
+        }
+    }
+}
+
+pub fn default_timeout() -> String {
+    "30m".to_string()
+}
+
+pub fn default_skills_root() -> String {
+    ".agents/skills".to_string()
+}
+
+pub fn default_workdir() -> String {
+    "/workspace".to_string()
+}
+
+pub fn default_network_action() -> String {
+    "deny".to_string()
 }
 
 impl Manifest {
@@ -75,8 +159,61 @@ impl Manifest {
             }
             doc["skills"] = toml_edit::Item::Table(skills);
         }
+        if let Some(sandbox) = &self.sandbox {
+            doc["sandbox"] = toml_edit::Item::Table(sandbox_table(sandbox));
+        }
         fs::write(path, doc.to_string()).with_context(|| format!("writing {}", path.display()))
     }
+}
+
+/// Build the `[sandbox]` table. Scalars are always written so a reader sees the
+/// effective value; collections only when non-empty.
+fn sandbox_table(sb: &SandboxSpec) -> toml_edit::Table {
+    let mut t = toml_edit::Table::new();
+    t.insert("image", toml_edit::value(sb.image.clone()));
+    t.insert("timeout", toml_edit::value(sb.timeout.clone()));
+    t.insert("skills_root", toml_edit::value(sb.skills_root.clone()));
+    t.insert("workdir", toml_edit::value(sb.workdir.clone()));
+    t.insert("credential_proxy", toml_edit::value(sb.credential_proxy));
+
+    if !sb.resources.is_empty() {
+        let mut resources = toml_edit::Table::new();
+        for (k, v) in &sb.resources {
+            resources.insert(k, toml_edit::value(v.clone()));
+        }
+        t.insert("resources", toml_edit::Item::Table(resources));
+    }
+
+    if !sb.env.is_empty() {
+        let mut env = toml_edit::Table::new();
+        for (k, v) in &sb.env {
+            let mut reference = toml_edit::InlineTable::new();
+            reference.insert("ref", v.r#ref.clone().into());
+            env.insert(
+                k,
+                toml_edit::Item::Value(toml_edit::Value::InlineTable(reference)),
+            );
+        }
+        t.insert("env", toml_edit::Item::Table(env));
+    }
+
+    let mut network = toml_edit::Table::new();
+    network.insert(
+        "default_action",
+        toml_edit::value(sb.network.default_action.clone()),
+    );
+    for (key, values) in [("allow", &sb.network.allow), ("deny", &sb.network.deny)] {
+        if !values.is_empty() {
+            let mut arr = toml_edit::Array::new();
+            for v in values {
+                arr.push(v.clone());
+            }
+            network.insert(key, toml_edit::value(arr));
+        }
+    }
+    t.insert("network", toml_edit::Item::Table(network));
+
+    t
 }
 
 pub fn validate_skill(name: &str, spec: &SkillSpec) -> Result<()> {
@@ -186,6 +323,111 @@ pub fn validate_harness(harness: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Validate `[sandbox]` when present. Runs alongside `validate_harness` so every
+/// command rejects the same inputs before doing any work.
+pub fn validate_sandbox(sandbox: &Option<SandboxSpec>) -> Result<()> {
+    let Some(sb) = sandbox else {
+        return Ok(());
+    };
+
+    if sb.image.trim().is_empty() {
+        anyhow::bail!("sandbox.image must not be empty");
+    }
+    if !is_duration(&sb.timeout) {
+        anyhow::bail!(
+            "sandbox.timeout '{}' must be a duration (30m, 1h, 45s) or a positive number of seconds",
+            sb.timeout
+        );
+    }
+    for (key, value) in &sb.resources {
+        if !is_positive_amount(value) {
+            anyhow::bail!(
+                "sandbox.resources.{key} '{value}' must be a positive amount (e.g. 1, 0.5, 500m, 2Gi)"
+            );
+        }
+    }
+    if !is_safe_path(&sb.skills_root) {
+        anyhow::bail!(
+            "sandbox.skills_root '{}' must be a relative path without '..'",
+            sb.skills_root
+        );
+    }
+    if !sb.workdir.starts_with('/') {
+        anyhow::bail!("sandbox.workdir '{}' must be an absolute path", sb.workdir);
+    }
+    if !matches!(sb.network.default_action.as_str(), "allow" | "deny") {
+        anyhow::bail!(
+            "sandbox.network.default_action '{}' must be 'allow' or 'deny'",
+            sb.network.default_action
+        );
+    }
+    for target in sb.network.allow.iter().chain(&sb.network.deny) {
+        if !is_network_target(target) {
+            anyhow::bail!(
+                "sandbox.network target '{target}' must be a domain, wildcard domain, IP, or CIDR"
+            );
+        }
+    }
+    // A literal env value cannot even deserialize into `EnvRef`; this catches the
+    // empty indirection, which would otherwise emit a value-less reference.
+    for (key, value) in &sb.env {
+        if value.r#ref.trim().is_empty() {
+            anyhow::bail!(
+                "sandbox.env.{key} needs an indirection, e.g. {{ ref = \"env:{key}\" }}; \
+                 agenv never stores a secret value"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// `45s`, `30m`, `1h`, or a bare number of seconds.
+fn is_duration(s: &str) -> bool {
+    let digits = match s.as_bytes().last() {
+        Some(b's') | Some(b'm') | Some(b'h') => &s[..s.len() - 1],
+        _ => s,
+    };
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    digits.parse::<u64>().map(|n| n > 0).unwrap_or(false)
+}
+
+/// `1`, `0.5`, `500m`, `2Gi` — a positive number with an optional unit.
+fn is_positive_amount(s: &str) -> bool {
+    let number = ["Ki", "Mi", "Gi", "Ti", "K", "M", "G", "T", "m"]
+        .iter()
+        .find_map(|unit| s.strip_suffix(unit))
+        .unwrap_or(s);
+    number
+        .parse::<f64>()
+        .map(|n| n > 0.0 && n.is_finite())
+        .unwrap_or(false)
+}
+
+/// A domain, `*.domain`, an IP, or a CIDR.
+fn is_network_target(s: &str) -> bool {
+    let host = s.strip_prefix("*.").unwrap_or(s);
+    if let Some((addr, prefix)) = host.split_once('/') {
+        return addr.parse::<std::net::IpAddr>().is_ok()
+            && prefix.parse::<u8>().map(|p| p <= 128).unwrap_or(false);
+    }
+    host.parse::<std::net::IpAddr>().is_ok() || is_domain_name(host)
+}
+
+fn is_domain_name(s: &str) -> bool {
+    s.contains('.')
+        && s.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        })
+}
+
 fn is_safe_path(path: &str) -> bool {
     if path.is_empty() || path.starts_with('/') || path.starts_with('\\') || path.contains(':') {
         return false;
@@ -273,6 +515,7 @@ mod tests {
             name: "payments-backend".to_string(),
             harness: vec!["claude-code".to_string()],
             skills,
+            sandbox: None,
         };
         let path = tmp_manifest_path("roundtrip");
         manifest.save(&path).unwrap();
@@ -292,6 +535,7 @@ mod tests {
             name: "x".to_string(),
             harness: vec!["claude-code".to_string()],
             skills: BTreeMap::new(),
+            sandbox: None,
         };
         let path = tmp_manifest_path("empty");
         manifest.save(&path).unwrap();
@@ -472,5 +716,169 @@ harness = "claude-code"
         // an empty ref on a git source is still rejected
         assert!(validate_skill("ok", &spec("git@github.com:a/b", "", None)).is_err());
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn sandbox_round_trip() {
+        let mut resources = BTreeMap::new();
+        resources.insert("cpu".to_string(), "1".to_string());
+        resources.insert("memory".to_string(), "2Gi".to_string());
+        let mut env = BTreeMap::new();
+        env.insert(
+            "ANTHROPIC_API_KEY".to_string(),
+            EnvRef {
+                r#ref: "env:ANTHROPIC_API_KEY".to_string(),
+            },
+        );
+
+        let manifest = Manifest {
+            name: "life-simulator-mvp".to_string(),
+            harness: vec!["opencode".to_string()],
+            skills: BTreeMap::new(),
+            sandbox: Some(SandboxSpec {
+                image: "node:22-bookworm-slim".to_string(),
+                timeout: "30m".to_string(),
+                skills_root: ".agents/skills".to_string(),
+                workdir: "/workspace".to_string(),
+                credential_proxy: true,
+                resources,
+                env,
+                network: NetworkSpec {
+                    default_action: "deny".to_string(),
+                    allow: vec!["api.anthropic.com".to_string()],
+                    deny: vec!["*.example.com".to_string()],
+                },
+            }),
+        };
+
+        let path = tmp_manifest_path("sandbox-roundtrip");
+        manifest.save(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("[sandbox]"), "{text}");
+        assert!(
+            text.contains("ANTHROPIC_API_KEY = { ref = \"env:ANTHROPIC_API_KEY\" }"),
+            "{text}"
+        );
+        assert!(validate_sandbox(&manifest.sandbox).is_ok());
+        assert_eq!(manifest, Manifest::load(&path).unwrap());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn sandbox_absent_is_omitted() {
+        let manifest = Manifest {
+            name: "x".to_string(),
+            harness: vec!["claude-code".to_string()],
+            skills: BTreeMap::new(),
+            sandbox: None,
+        };
+        let path = tmp_manifest_path("sandbox-absent");
+        manifest.save(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("sandbox"), "{text}");
+        assert_eq!(manifest, Manifest::load(&path).unwrap());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn sandbox_defaults_are_applied() {
+        let manifest: Manifest = toml::from_str(
+            "name = \"x\"\nharness = [\"claude-code\"]\n[sandbox]\nimage = \"alpine\"\n",
+        )
+        .unwrap();
+        let sb = manifest.sandbox.as_ref().expect("sandbox is present");
+        assert_eq!(sb.timeout, "30m");
+        assert_eq!(sb.skills_root, ".agents/skills");
+        assert_eq!(sb.workdir, "/workspace");
+        assert!(!sb.credential_proxy);
+        assert_eq!(sb.network.default_action, "deny");
+        assert!(validate_sandbox(&manifest.sandbox).is_ok());
+    }
+
+    #[test]
+    fn sandbox_validation_rules() {
+        let ok = SandboxSpec {
+            image: "alpine".to_string(),
+            ..Default::default()
+        };
+        assert!(validate_sandbox(&None).is_ok());
+        assert!(validate_sandbox(&Some(ok.clone())).is_ok());
+
+        for bad in [
+            SandboxSpec {
+                image: "  ".to_string(),
+                ..ok.clone()
+            },
+            SandboxSpec {
+                timeout: "soon".to_string(),
+                ..ok.clone()
+            },
+            SandboxSpec {
+                timeout: "0".to_string(),
+                ..ok.clone()
+            },
+            SandboxSpec {
+                skills_root: "../etc".to_string(),
+                ..ok.clone()
+            },
+            SandboxSpec {
+                workdir: "workspace".to_string(),
+                ..ok.clone()
+            },
+            SandboxSpec {
+                network: NetworkSpec {
+                    default_action: "maybe".to_string(),
+                    ..NetworkSpec::default()
+                },
+                ..ok.clone()
+            },
+            SandboxSpec {
+                network: NetworkSpec {
+                    allow: vec!["not a domain".to_string()],
+                    ..NetworkSpec::default()
+                },
+                ..ok.clone()
+            },
+            SandboxSpec {
+                resources: BTreeMap::from([("cpu".to_string(), "0".to_string())]),
+                ..ok.clone()
+            },
+            SandboxSpec {
+                env: BTreeMap::from([(
+                    "MY_KEY".to_string(),
+                    EnvRef {
+                        r#ref: String::new(),
+                    },
+                )]),
+                ..ok.clone()
+            },
+        ] {
+            assert!(
+                validate_sandbox(&Some(bad.clone())).is_err(),
+                "should be rejected: {bad:?}"
+            );
+        }
+
+        let accepted = SandboxSpec {
+            timeout: "45s".to_string(),
+            resources: BTreeMap::from([("memory".to_string(), "512Mi".to_string())]),
+            network: NetworkSpec {
+                default_action: "allow".to_string(),
+                allow: vec![
+                    "api.anthropic.com".to_string(),
+                    "*.pypi.org".to_string(),
+                    "10.0.0.0/8".to_string(),
+                ],
+                deny: vec!["1.2.3.4".to_string()],
+            },
+            ..ok.clone()
+        };
+        assert!(validate_sandbox(&Some(accepted)).is_ok());
+
+        // A literal env value never reaches validation: it is not an `EnvRef`.
+        assert!(toml::from_str::<Manifest>(
+            "name = \"x\"\nharness = [\"claude-code\"]\n\n[sandbox]\nimage = \"alpine\"\n\n[sandbox.env]\nMY_KEY = \"oops\"\n"
+        )
+        .is_err());
     }
 }
