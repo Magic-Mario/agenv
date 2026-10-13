@@ -16,6 +16,39 @@ permissions:
     resource: "git *"
     effect: allow
   - action: shell
+    resource: "cd *"
+    effect: allow
+  - action: shell
+    resource: "ls *"
+    effect: allow
+  - action: shell
+    resource: "cat *"
+    effect: allow
+  - action: shell
+    resource: "echo *"
+    effect: allow
+  - action: shell
+    resource: "printf *"
+    effect: allow
+  - action: shell
+    resource: "mkdir *"
+    effect: allow
+  - action: shell
+    resource: "find *"
+    effect: allow
+  - action: shell
+    resource: "python3 *"
+    effect: allow
+  - action: shell
+    resource: "sh *"
+    effect: allow
+  - action: shell
+    resource: "rm *"
+    effect: allow
+  - action: shell
+    resource: "sudo *"
+    effect: deny
+  - action: shell
     resource: "git push*"
     effect: deny
 ---

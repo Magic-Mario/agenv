@@ -11,15 +11,24 @@ permissions:
     effect: deny
   - action: shell
     resource: "*"
-    effect: ask
-  - action: shell
-    resource: "cargo *"
     effect: allow
   - action: shell
-    resource: "git *"
-    effect: allow
+    resource: "sudo *"
+    effect: deny
+  - action: shell
+    resource: "curl *"
+    effect: deny
+  - action: shell
+    resource: "wget *"
+    effect: deny
   - action: shell
     resource: "git push*"
+    effect: deny
+  - action: shell
+    resource: "rm -rf /*"
+    effect: deny
+  - action: shell
+    resource: "rm -rf ~*"
     effect: deny
 ---
 
