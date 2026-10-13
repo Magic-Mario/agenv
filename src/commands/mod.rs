@@ -3,6 +3,7 @@ pub mod harness;
 pub mod init;
 pub mod install;
 pub mod prune;
+pub mod sandbox;
 pub mod status;
 pub mod sync;
 pub mod update;

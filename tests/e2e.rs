@@ -720,3 +720,101 @@ fn store_prune_removes_unreferenced_entries() {
 
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[test]
+fn sandbox_request_renders_the_document() {
+    let base = temp_base("sandbox-request");
+    let project = base.join("project");
+    let store = base.join("store");
+    std::fs::create_dir_all(&project).unwrap();
+    git(&project, &["init", "-q"]);
+
+    // No [sandbox]: non-zero, nothing on stdout, and the error names it (R8).
+    std::fs::write(
+        project.join("agenv.toml"),
+        "name = \"t\"\nharness = [\"opencode\"]\n",
+    )
+    .unwrap();
+    let out = run(&project, &store, &["sandbox", "request"]);
+    assert!(!out.status.success());
+    assert!(out.stdout.is_empty(), "stdout must stay empty");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("[sandbox]"),
+        "the error should name the section: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // An invalid section: non-zero, nothing on stdout, and no value echoed (R8, R4).
+    std::fs::write(
+        project.join("agenv.toml"),
+        "name = \"t\"\nharness = [\"opencode\"]\n\n[sandbox]\nimage = \"alpine\"\n\n[sandbox.env]\nMY_KEY = \"sk-ant-live-0123456789\"\n",
+    )
+    .unwrap();
+    let out = run(&project, &store, &["sandbox", "request"]);
+    assert!(!out.status.success());
+    assert!(out.stdout.is_empty(), "stdout must stay empty");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("sandbox.env.MY_KEY"), "{stderr}");
+    assert!(
+        !stderr.contains("sk-ant"),
+        "the error leaks the value: {stderr}"
+    );
+
+    // A valid section: a deterministic document carrying the declared intent
+    // (R5, R6).
+    std::fs::write(
+        project.join("agenv.toml"),
+        "name = \"t\"\nharness = [\"opencode\"]\n\n[sandbox]\nimage = \"alpine\"\ntimeout = \"1h\"\n\n[sandbox.env]\nMY_KEY = \"env:REAL_VAR\"\n",
+    )
+    .unwrap();
+    let first = run(&project, &store, &["sandbox", "request"]);
+    assert!(
+        first.status.success(),
+        "{}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+    let second = run(&project, &store, &["sandbox", "request"]);
+    assert_eq!(first.stdout, second.stdout, "two runs must be identical");
+
+    let text = String::from_utf8(first.stdout.clone()).unwrap();
+    assert!(text.contains("\"image\": \"alpine\""), "{text}");
+    assert!(text.contains("\"timeout\": 3600"), "{text}");
+    assert!(text.contains("\"MY_KEY\": \"env:REAL_VAR\""), "{text}");
+    // The declared policy is always sent: omitting it leaves egress open.
+    assert!(text.contains("\"defaultAction\": \"deny\""), "{text}");
+    // Nothing host-derived.
+    assert!(!text.contains("/home/"), "{text}");
+    assert!(
+        !text.contains(&project.to_string_lossy().into_owned()),
+        "{text}"
+    );
+
+    // An indirection is emitted, never resolved: even with the variable set in
+    // the environment, its value must not appear (R6).
+    let resolved = Command::new(BIN)
+        .args(["sandbox", "request"])
+        .current_dir(&project)
+        .env("AGENV_STORE", &store)
+        .env("REAL_VAR", "hunter2-must-not-appear")
+        .output()
+        .unwrap();
+    assert!(resolved.status.success());
+    let resolved_text = String::from_utf8_lossy(&resolved.stdout);
+    assert!(
+        !resolved_text.contains("hunter2"),
+        "the reference must not be resolved: {resolved_text}"
+    );
+
+    // --out writes exactly the same bytes and prints nothing (R5).
+    let file = base.join("request.json");
+    let written = run(
+        &project,
+        &store,
+        &["sandbox", "request", "--out", file.to_str().unwrap()],
+    );
+    assert!(written.status.success());
+    assert!(written.stdout.is_empty(), "--out must not also print");
+    assert_eq!(std::fs::read(&file).unwrap(), first.stdout);
+
+    let _ = std::fs::remove_dir_all(&base);
+}

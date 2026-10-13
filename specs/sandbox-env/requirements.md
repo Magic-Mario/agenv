@@ -69,17 +69,24 @@ documents, it does not create, connect to, or manage a sandbox.
 ### `agenv sandbox request`
 
 - **R5** — `agenv sandbox request` SHALL write, to stdout, a CreateSandboxRequest
-  JSON document (camelCase keys, per `specs/sandbox-lifecycle.yml`) describing
-  `image`, `timeout`, `env`, `resourceLimits`, `networkPolicy`, and
+  JSON document (camelCase keys, per OpenSandbox's published
+  `specs/sandbox-lifecycle.yml` — upstream, not vendored in this repository)
+  describing `image`, `timeout`, `env`, `resourceLimits`, `networkPolicy`, and
   `credentialProxy`; `--out <path>` SHALL write the same document to a file
-  instead. Only the keys the manifest actually declares SHALL be emitted.
+  instead. The document SHALL state the manifest's *effective* intent rather than
+  only its literal keys: `image`, `timeout` and the network policy are always
+  emitted, because the manifest's own defaults are part of what it declares and
+  because omitting `networkPolicy` leaves the runtime's egress **open** rather
+  than denied. Collections with no entries (`env`, `resourceLimits`, `egress`)
+  SHALL be omitted, and `credentialProxy` SHALL be emitted only when it is
+  enabled — absent and `enabled: false` mean the same thing to the runtime.
 - **R6** — The emitted document SHALL be deterministic: byte-identical for
   identical input, with a fixed field order, no host paths, no user identity, no
   timestamps, and no ambient environment values. An `env` indirection SHALL
   appear as its declared reference (e.g. `env:MY_KEY`), never as a resolved
   value.
 - **R7** — Field names and value shapes SHALL be validated against
-  `specs/sandbox-lifecycle.yml`, and the document SHALL be accepted by
+  `specs/sandbox-lifecycle.yml` (upstream), and the document SHALL be accepted by
   `osb sandbox create -f`. `agenv` SHALL NOT guess a field the schema does not
   define.
 - **R8** — Running the command without `[sandbox]`, or with an invalid
@@ -129,7 +136,8 @@ documents, it does not create, connect to, or manage a sandbox.
 - R5: `sandbox request` prints valid JSON; `--out` writes the same bytes to a file.
 - R6: two runs produce byte-identical stdout; the output contains no host path,
   no user name, and no timestamp.
-- R7: the document validates against `specs/sandbox-lifecycle.yml`, and
+- R7: the document validates against OpenSandbox's published
+  `specs/sandbox-lifecycle.yml` (upstream; not vendored here), and
   `osb sandbox create -f <file>` accepts it (manual check, recorded in the task).
 - R8: `sandbox request` without `[sandbox]` exits non-zero and prints nothing on stdout.
 - R9: unpacking the archive yields `agenv.toml`, `agenv.lock`, and

@@ -86,7 +86,8 @@ pub struct NetworkSpec {
 ```
 
 Emitted document (`agenv sandbox request`), key names and nesting taken from
-`specs/sandbox-lifecycle.yml`:
+OpenSandbox's published `specs/sandbox-lifecycle.yml` (upstream, not vendored
+here):
 
 ```json
 {
@@ -197,6 +198,16 @@ feature), and no value is derived from the host.
   in order and the docs state first-match-wins, so a deny has to be able to
   shadow a broad allow. The manifest keeps the two lists separate for
   readability and the renderer imposes the order.
+- **The network policy is always emitted, fail-closed.** Omitting
+  `networkPolicy` does not mean "no opinion": without it OpenSandbox attaches no
+  egress sidecar and the sandbox has full outbound access — measured in the
+  Phase 0 experiment (npmjs and github both reachable). Sending the manifest's
+  default `deny` policy is the safe reading of an undeclared `[sandbox.network]`,
+  and it fails loudly: a sandbox that cannot reach its model or registry is
+  obvious, a silently open one is not. `timeout` is explicit for the same reason
+  (the manifest's default is part of what it declares). `credentialProxy` is the
+  opposite case — absent and `enabled: false` mean the same thing to the runtime
+  — so it is emitted only when enabled.
 - **The bundle carries the sandbox layout only.** A harness-layout bundle would
   duplicate what `install` already produces. If a future phase (image baking)
   needs one, it can add a flag then.

@@ -68,6 +68,11 @@ enum Command {
         #[command(subcommand)]
         command: StoreCommand,
     },
+    /// Emit the request document for `[sandbox]`
+    Sandbox {
+        #[command(subcommand)]
+        command: SandboxCommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -80,6 +85,16 @@ enum HarnessCommand {
 enum StoreCommand {
     /// Delete store entries not referenced by the current lock
     Prune,
+}
+
+#[derive(Subcommand)]
+enum SandboxCommand {
+    /// Render `[sandbox]` as an OpenSandbox CreateSandboxRequest document
+    Request {
+        /// Write the document to a file instead of stdout
+        #[arg(long = "out", value_name = "FILE")]
+        out: Option<PathBuf>,
+    },
 }
 
 fn main() {
@@ -116,6 +131,9 @@ fn main() {
         },
         Command::Store { command } => match command {
             StoreCommand::Prune => commands::prune::run(),
+        },
+        Command::Sandbox { command } => match command {
+            SandboxCommand::Request { out } => commands::sandbox::run(out.as_deref()),
         },
     };
 

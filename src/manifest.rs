@@ -338,7 +338,7 @@ pub fn validate_sandbox(sandbox: &Option<SandboxSpec>) -> Result<()> {
     if sb.image.trim().is_empty() {
         anyhow::bail!("sandbox.image must not be empty");
     }
-    if !is_duration(&sb.timeout) {
+    if duration_seconds(&sb.timeout).is_none() {
         anyhow::bail!(
             "sandbox.timeout '{}' must be a duration (30m, 1h, 45s) or a positive number of seconds",
             sb.timeout
@@ -420,16 +420,22 @@ fn line_col(text: &str, offset: usize) -> (usize, usize) {
     (line, column)
 }
 
-/// `45s`, `30m`, `1h`, or a bare number of seconds.
-fn is_duration(s: &str) -> bool {
-    let digits = match s.as_bytes().last() {
-        Some(b's') | Some(b'm') | Some(b'h') => &s[..s.len() - 1],
-        _ => s,
+/// `45s`, `30m`, `1h`, or a bare number of seconds — as seconds.
+pub(crate) fn duration_seconds(s: &str) -> Option<u64> {
+    let (digits, unit) = match s.as_bytes().last() {
+        Some(b's') => (&s[..s.len() - 1], 1u64),
+        Some(b'm') => (&s[..s.len() - 1], 60),
+        Some(b'h') => (&s[..s.len() - 1], 3600),
+        _ => (s, 1),
     };
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return false;
+        return None;
     }
-    digits.parse::<u64>().map(|n| n > 0).unwrap_or(false)
+    digits
+        .parse::<u64>()
+        .ok()?
+        .checked_mul(unit)
+        .filter(|n| *n > 0)
 }
 
 /// `1`, `0.5`, `500m`, `2Gi` — a positive number with an optional unit.

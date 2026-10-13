@@ -25,7 +25,8 @@
 - [ ] **T3** — `Cargo.toml`: add `serde_json`. `src/commands/sandbox.rs` (new):
   `CreateSandboxRequest` plus `NetworkPolicy`/`NetworkRule`/`CredentialProxy`
   emit structs; duration → seconds normalization; deny rules before allow rules;
-  omit undeclared keys; `run(out)` writes to stdout or a file (R5, R6).
+  always emit the fail-closed network policy, omit empty collections and a
+  disabled credential proxy; `run(out)` writes to stdout or a file (R5, R6).
   - depends on: T2
 - [ ] **T4** — `src/main.rs`: `Sandbox { Request { out } }` subcommand. With no
   `[sandbox]`, exit non-zero naming the section and write nothing to stdout; call
@@ -55,7 +56,8 @@
 - [ ] **T8** — `tests/e2e.rs` + recorded manual check: `sandbox request` is
   byte-identical across runs and contains no host path, user name, or timestamp;
   missing `[sandbox]` exits non-zero with empty stdout; the emitted document
-  validates against `specs/sandbox-lifecycle.yml` and
+  validates against OpenSandbox's published `specs/sandbox-lifecycle.yml`
+  (upstream, not vendored in this repository) and
   `osb sandbox create -f <file>` accepts it — record the command and its output
   as the task's evidence (R6, R7, R8).
   - depends on: T4
