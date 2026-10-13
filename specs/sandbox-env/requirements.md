@@ -92,7 +92,13 @@ documents, it does not create, connect to, or manage a sandbox.
 - **R7** — Field names and value shapes SHALL be validated against
   `specs/sandbox-lifecycle.yml` (upstream), and the document SHALL be accepted by
   `osb sandbox create -f`. `agenv` SHALL NOT guess a field the schema does not
-  define.
+  define. The schema's *machine-readable body* governs: its prose calls
+  `entrypoint` (and, in standard mode, `resourceLimits`) required for an image
+  request, and a document carrying neither was measured to be accepted, so that
+  prose is not enforced. A document declaring `credential_proxy` SHALL be read as
+  conditional on a server configured with `[egress] mode = "dns+nft"` — a
+  prerequisite `agenv` cannot check (R14) and therefore documents rather than
+  validates.
 - **R8** — Running the command without `[sandbox]`, or with an invalid
   `[sandbox]`, SHALL exit non-zero with a message naming the field, and SHALL
   write nothing to stdout.
@@ -143,7 +149,10 @@ documents, it does not create, connect to, or manage a sandbox.
   no user name, and no timestamp.
 - R7: the document validates against OpenSandbox's published
   `specs/sandbox-lifecycle.yml` (upstream; not vendored here), and
-  `osb sandbox create -f <file>` accepts it (manual check, recorded in the task).
+  `osb sandbox create -f <file>` accepts it (recorded in the task). Measured: a
+  minimal document and a full one without `credentialProxy` were accepted, the
+  declared `allow` target was reachable from inside the sandbox, an undeclared
+  one was blocked, and the `env` reference arrived unresolved.
 - R8: `sandbox request` without `[sandbox]` exits non-zero and prints nothing on stdout.
 - R9: unpacking the archive yields `agenv.toml`, `agenv.lock`, and
   `<skills_root>/<name>/SKILL.md` for every declared skill, with no `.git` entry.

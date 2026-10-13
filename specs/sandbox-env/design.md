@@ -246,14 +246,26 @@ feature), and no value is derived from the host.
   the document emits that form; the CLI also documents accepting a bare string
   and may normalise it. T8's live `osb sandbox create -f` run is what settles
   which form the server actually takes.
-- **`entrypoint` is not declared.** The schema's prose and the CLI's example both
-  list `entrypoint` for an image request. Whether the server requires one is
-  settled live in T8; if it does, `[sandbox]` gains a field — agenv does not
-  invent a command to keep a container alive.
+- **`entrypoint` is not declared — measured, and it does not matter.** The
+  schema's prose and the CLI's example both list `entrypoint` for an image
+  request, but a document declaring neither `entrypoint` nor `resourceLimits`
+  was accepted by a live `osb sandbox create -f`, and the sandbox ran. The prose
+  is not enforced; agenv keeps not inventing a command. The same measurement
+  covers `resourceLimits` being prose-required in standard mode.
+- **`credential_proxy` has a server prerequisite agenv cannot see.** With the
+  default local config (`[egress] mode = "dns"`), a document setting
+  `credentialProxy.enabled` is rejected: *"credentialProxy.enabled requires
+  server [egress].mode = \"dns+nft\""*. That is a property of the deployment, not
+  of the project, and R14 forbids agenv from asking — so the field stays declared
+  intent and the server's error is the feedback. It is worth knowing before
+  turning it on.
 - **The egress MVP may ignore IP and CIDR targets.** `NetworkRule.target`'s prose
   says IP/CIDR are not yet supported, while R3 requires `[sandbox]` to accept
   them. It is a string either way, so nothing disagrees in shape — but a declared
   IP rule may be inert in the runtime.
+- **A wildcard or `allow` default next to `credentialProxy` is a deprecated
+  combination** in the schema's prose (default-allow emits a security warning).
+  agenv emits what the manifest declares and does not couple the two fields.
 - **`ResourceLimits` declares no properties** in the schema, so `[sandbox.resources]`
   is passed through as a string map rather than validated key by key. Only the
   value shape is checked.

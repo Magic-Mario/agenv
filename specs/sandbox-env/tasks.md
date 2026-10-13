@@ -59,10 +59,12 @@
   validates against OpenSandbox's published `specs/sandbox-lifecycle.yml`
   (upstream, not vendored in this repository) and
   `osb sandbox create -f <file>` accepts it — record the command and its output
-  as the task's evidence (R6, R7, R8). Settle in the same run whether the server
-  requires `entrypoint` for an image request (the schema's prose and the CLI's
-  example both list it, and the document declares none); if it does, that becomes
-  a `[sandbox]` field rather than a command agenv invents.
+  as the task's evidence (R6, R7, R8). The `entrypoint` question is answered:
+  a document declaring neither `entrypoint` nor `resourceLimits` was accepted, so
+  the schema's prose about them is not enforced — the check records that
+  measurement instead of re-litigating it. It must also record the
+  `credentialProxy` prerequisite: the server rejects `enabled: true` unless it
+  runs `[egress] mode = "dns+nft"`, which the default local config does not.
   - depends on: T4
 - [ ] **T9** — `README.md`: document `[sandbox]` (every field and its default),
   `agenv bundle` (determinism and what the artifact contains),
