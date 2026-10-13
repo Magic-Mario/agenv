@@ -208,6 +208,12 @@ feature), and no value is derived from the host.
   (the manifest's default is part of what it declares). `credentialProxy` is the
   opposite case — absent and `enabled: false` mean the same thing to the runtime
   — so it is emitted only when enabled.
+- **Validation mirrors the schema's constraints wherever the document has to
+  satisfy them.** `qa` found two this way: `image` is the schema's `ImageSpec`
+  (`{uri}`, not a bare string) and `timeout` has a `minimum` of 60 seconds.
+  Enforcing both in `validate_sandbox` means a manifest that passes validation
+  cannot produce a document the schema rejects; the alternative is finding out at
+  create time, which is the mistake R3 exists to catch.
 - **The bundle carries the sandbox layout only.** A harness-layout bundle would
   duplicate what `install` already produces. If a future phase (image baking)
   needs one, it can add a flag then.

@@ -338,11 +338,14 @@ pub fn validate_sandbox(sandbox: &Option<SandboxSpec>) -> Result<()> {
     if sb.image.trim().is_empty() {
         anyhow::bail!("sandbox.image must not be empty");
     }
-    if duration_seconds(&sb.timeout).is_none() {
-        anyhow::bail!(
-            "sandbox.timeout '{}' must be a duration (30m, 1h, 45s) or a positive number of seconds",
+    // The request schema floors `timeout` at 60 seconds, so a manifest that
+    // passes validation can never produce a document the schema rejects.
+    match duration_seconds(&sb.timeout) {
+        Some(seconds) if seconds >= MIN_TIMEOUT_SECONDS => {}
+        _ => anyhow::bail!(
+            "sandbox.timeout '{}' must be a duration of at least {MIN_TIMEOUT_SECONDS} seconds (30m, 1h, 90s)",
             sb.timeout
-        );
+        ),
     }
     for (key, value) in &sb.resources {
         if !is_positive_amount(value) {
@@ -420,7 +423,10 @@ fn line_col(text: &str, offset: usize) -> (usize, usize) {
     (line, column)
 }
 
-/// `45s`, `30m`, `1h`, or a bare number of seconds — as seconds.
+/// The request schema (`CreateSandboxRequest.timeout`) floors the value here.
+const MIN_TIMEOUT_SECONDS: u64 = 60;
+
+/// `90s`, `30m`, `1h`, or a bare number of seconds — as seconds.
 pub(crate) fn duration_seconds(s: &str) -> Option<u64> {
     let (digits, unit) = match s.as_bytes().last() {
         Some(b's') => (&s[..s.len() - 1], 1u64),
@@ -871,6 +877,10 @@ harness = "claude-code"
                 ..ok.clone()
             },
             SandboxSpec {
+                timeout: "45s".to_string(),
+                ..ok.clone()
+            },
+            SandboxSpec {
                 skills_root: "../etc".to_string(),
                 ..ok.clone()
             },
@@ -959,7 +969,7 @@ harness = "claude-code"
         );
 
         let accepted = SandboxSpec {
-            timeout: "45s".to_string(),
+            timeout: "90s".to_string(),
             resources: BTreeMap::from([("memory".to_string(), "512Mi".to_string())]),
             env: BTreeMap::from([("MY_KEY".to_string(), "env:THE_REAL_VAR".to_string())]),
             network: NetworkSpec {

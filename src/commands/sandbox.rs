@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn a_full_sandbox_renders_every_declared_field() {
         let mut full = spec("node:22-bookworm-slim");
-        full.timeout = "45s".to_string();
+        full.timeout = "90s".to_string();
         full.credential_proxy = true;
         full.resources = BTreeMap::from([
             ("cpu".to_string(), "1".to_string()),
@@ -179,7 +179,7 @@ mod tests {
   "image": {
     "uri": "node:22-bookworm-slim"
   },
-  "timeout": 45,
+  "timeout": 90,
   "env": {
     "ANTHROPIC_API_KEY": "env:ANTHROPIC_API_KEY"
   },

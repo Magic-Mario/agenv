@@ -52,8 +52,10 @@ documents, it does not create, connect to, or manage a sandbox.
 - **R2** — `[sandbox].image` SHALL be required whenever `[sandbox]` is present.
   Its absence SHALL fail the command with a non-zero exit naming the field.
 - **R3** — Validation SHALL reject, before any work: an empty `image`; a
-  `timeout` that is neither a duration (`30m`, `1h`, `45s`) nor a positive
-  integer of seconds; a negative, zero, or exponent-form `resources` value; a
+  `timeout` that is not a duration (`30m`, `1h`, `90s`) or a whole number of
+  seconds, or that falls below the 60-second floor the request schema enforces
+  (`CreateSandboxRequest.timeout`); a negative, zero, or exponent-form
+  `resources` value; a
   `skills_root` that is not a safe relative path (same rule as a skill `path`);
   a `workdir` that is not absolute or that contains a `..` component; a
   `default_action` other than `allow` or `deny`; a `network.allow`/`deny` entry
@@ -129,7 +131,8 @@ documents, it does not create, connect to, or manage a sandbox.
 - R1: a manifest with `[sandbox]` round-trips (load → save → load) unchanged; a
   manifest without it is unaffected.
 - R2: `[sandbox]` with no `image` → non-zero exit naming `image`.
-- R3: `timeout = "soon"`, `skills_root = "../etc"`, `workdir = "/../etc"`,
+- R3: `timeout = "soon"`, `timeout = "45s"` (below the schema's 60-second floor),
+  `skills_root = "../etc"`, `workdir = "/../etc"`,
   `default_action = "maybe"`, `allow = ["not a domain"]`, `allow = ["*.1.2.3.4"]`,
   `cpu = "1e3"` and an `[sandbox.env]` key containing a space are each rejected.
 - R4: `[sandbox.env] MY_KEY = "oops"` and `MY_KEY = "sk-ant-live-…"` are rejected
