@@ -64,7 +64,7 @@ pub fn harness_base(harness: &str) -> Result<&'static str> {
 /// Refuse to operate through a symlinked path component (a shared/malicious
 /// repo could point `base`, `skills`, or a local source elsewhere and turn
 /// materialize/prune/vendor into writes/deletes/reads outside the project).
-fn ensure_not_symlink(path: &Path) -> Result<()> {
+pub(crate) fn ensure_not_symlink(path: &Path) -> Result<()> {
     if !path.exists() {
         return Ok(());
     }

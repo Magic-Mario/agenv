@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde::Serialize;
 
-use crate::commands::manifest_path;
+use crate::commands::{ensure_not_symlink, manifest_path};
 use crate::manifest::{duration_seconds, validate_sandbox, Manifest, SandboxSpec};
 
 /// `image` is the schema's `ImageSpec`, not a bare string: `{ "uri": "…" }`.
@@ -113,7 +113,13 @@ pub fn run(out: Option<&Path>) -> Result<()> {
     let json = render_request(spec)?;
 
     match out {
-        Some(path) => fs::write(path, json).with_context(|| format!("writing {}", path.display())),
+        Some(path) => {
+            // The path is operator-typed, but the file at it can come from the
+            // repository (a committed symlink plus a script with a fixed `--out`),
+            // and every other write in this crate refuses the same pattern.
+            ensure_not_symlink(path)?;
+            fs::write(path, json).with_context(|| format!("writing {}", path.display()))
+        }
         None => {
             print!("{json}");
             Ok(())

@@ -72,18 +72,28 @@
   `agenv bundle` (determinism and what the artifact contains),
   `agenv sandbox request`, and the refs-only rule for `[sandbox.env]`. Extend the
   `Scope` section to say the tool emits a sandbox description but never creates
-  one (R14 is worth stating to readers, not just to reviewers).
+  one (R14 is worth stating to readers, not just to reviewers), and add the
+  operator-facing cautions a reader cannot guess: no field may carry a secret
+  (`image` and `resources` values are emitted verbatim, so a credential in one
+  would be republished in the document), `credential_proxy` needs the server to
+  run `[egress] mode = "dns+nft"`, and `timeout` must sit under the server's
+  configured maximum.
   - depends on: T4, T6
 
 ## Cross-spec notes
 
-- **Known follow-up, not fixed here (`documentation` found it).** `Lock::load`
-  (`src/lock.rs:33`) still wraps `toml::from_str` in `.with_context`, so a
-  malformed `agenv.lock` prints the parser's rendered source line — and a lock's
-  `source` URL can embed a credential, which is exactly why `store::redact`
-  exists. `Manifest::load` was tightened in this spec (R4's guarantee); the rule
-  should move into one shared helper that both callers use. It is unrelated to
-  `[sandbox]` and is a `src/` behaviour change, so it belongs in its own task.
+- **Known follow-up, not fixed here — one defect class, two remaining instances.**
+  (a) `Lock::load` (`src/lock.rs:33`) still wraps `toml::from_str` in
+  `.with_context`, so a malformed `agenv.lock` prints the parser's rendered source
+  line, and a lock's `source` URL can embed a credential — which is exactly why
+  `store::redact` exists. (b) `validate_sandbox` never echoes an `env` *value*
+  (R4 holds) but does interpolate the env *key* and the other fields (`timeout`,
+  `resources`, `skills_root`, `workdir`, network targets), so a credential typed
+  into one of those positions comes back on stderr. `Manifest::load` was
+  tightened in this spec, which is what makes the remaining two visible rather
+  than new. The rule should move into one shared helper both callers use; both
+  are unrelated to `[sandbox]` correctness and are `src/` behaviour changes, so
+  they belong in their own task.
 - `agenv.schema.json` (owned by `specs/schema-validation`) needs the `[sandbox]`
   table, the same way it needed the flat `[skills]` format.
 - The MCP/hooks/agents spec will extend the bundle's contents and owns harness

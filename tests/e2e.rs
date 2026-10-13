@@ -821,3 +821,38 @@ fn sandbox_request_renders_the_document() {
 
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[cfg(unix)]
+#[test]
+fn sandbox_request_refuses_a_symlinked_out_path() {
+    let base = temp_base("sandbox-out-symlink");
+    let project = base.join("project");
+    let store = base.join("store");
+    std::fs::create_dir_all(&project).unwrap();
+    git(&project, &["init", "-q"]);
+    std::fs::write(
+        project.join("agenv.toml"),
+        "name = \"t\"\nharness = [\"opencode\"]\n\n[sandbox]\nimage = \"alpine\"\n",
+    )
+    .unwrap();
+
+    // A repository could ship a symlink and a script could then pass a fixed
+    // `--out` path to it, so writing must not follow the link.
+    let victim = base.join("victim.txt");
+    std::fs::write(&victim, "keep me\n").unwrap();
+    let link = base.join("request.json");
+    std::os::unix::fs::symlink(&victim, &link).unwrap();
+
+    let out = run(
+        &project,
+        &store,
+        &["sandbox", "request", "--out", link.to_str().unwrap()],
+    );
+    assert!(
+        !out.status.success(),
+        "writing through a symlink must be refused"
+    );
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep me\n");
+
+    let _ = std::fs::remove_dir_all(&base);
+}
