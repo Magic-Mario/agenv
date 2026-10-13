@@ -2,7 +2,7 @@
 
 ## Phase 1 — Declaration
 
-- [ ] **T1** — `src/manifest.rs`: add `SandboxSpec`, `NetworkSpec`, `EnvRef` and
+- [ ] **T1** — `src/manifest.rs`: add `SandboxSpec` and `NetworkSpec` and
   `Manifest.sandbox: Option<SandboxSpec>` with the documented defaults; serialize
   it in `Manifest::save` and omit the section when absent. Round-trip unit test
   for a manifest with and without `[sandbox]` (R1).

@@ -173,6 +173,11 @@ feature), and no value is derived from the host.
   there would print the very secret the rule exists to keep out of logs. A
   literal constant belongs in the image (`ENV` in a Dockerfile), where it is
   reproducible anyway.
+- **`image` stays a required `String`, so an absent value fails during
+  deserialization** (`missing field \`image\``) while `validate_sandbox` rejects a
+  present-but-empty one. Typing it `Option<String>` so every message came from
+  one layer would weaken the type for a message-only gain: that error annotates
+  the `[sandbox]` header, not a value, so unlike `env` it leaks nothing.
 - **`tar` + `flate2` crates instead of shelling out.** The existing pattern is to
   shell out (`git`) rather than vendor C, but reproducible GNU tar flags
   (`--sort=name --mtime=@0 --owner=0`) do not exist in BSD/macOS tar and Windows
@@ -196,7 +201,7 @@ feature), and no value is derived from the host.
 
 | File | Change |
 |---|---|
-| `src/manifest.rs` | `SandboxSpec`/`NetworkSpec`/`EnvRef`; `Manifest.sandbox`; defaults; `validate_sandbox`; round-trip + validation unit tests |
+| `src/manifest.rs` | `SandboxSpec`/`NetworkSpec`; `Manifest.sandbox`; defaults; `validate_sandbox`; round-trip + validation unit tests |
 | `src/bundle.rs` | **new** — deterministic tar.gz writer (ordering, mtime, ownership, gzip header) |
 | `src/commands/bundle.rs` | **new** — resolve via `resolve_manifest`, archive, sha256, `--json` |
 | `src/commands/sandbox.rs` | **new** — `CreateSandboxRequest` emit structs, `run(out)` |

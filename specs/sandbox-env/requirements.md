@@ -49,8 +49,8 @@ documents, it does not create, connect to, or manage a sandbox.
   `[sandbox.network]`
   (`default_action`, `allow`, `deny`). A manifest without `[sandbox]` SHALL
   load and behave exactly as today.
-- **R2** — `[sandbox].image` SHALL be required whenever `[sandbox]` is present;
-  its absence SHALL be a validation error naming the field.
+- **R2** — `[sandbox].image` SHALL be required whenever `[sandbox]` is present.
+  Its absence SHALL fail the command with a non-zero exit naming the field.
 - **R3** — Validation SHALL reject, before any work: an empty `image`; a
   `timeout` that is neither a duration (`30m`, `1h`, `45s`) nor a positive
   integer of seconds; a negative, zero, or unbounded `resources.cpu`/`memory`;
@@ -75,7 +75,7 @@ documents, it does not create, connect to, or manage a sandbox.
 - **R6** — The emitted document SHALL be deterministic: byte-identical for
   identical input, with a fixed field order, no host paths, no user identity, no
   timestamps, and no ambient environment values. An `env` indirection SHALL
-  appear as its declared reference (e.g. `{env:MY_KEY}`), never as a resolved
+  appear as its declared reference (e.g. `env:MY_KEY`), never as a resolved
   value.
 - **R7** — Field names and value shapes SHALL be validated against
   `specs/sandbox-lifecycle.yml`, and the document SHALL be accepted by
