@@ -2,7 +2,8 @@
 
 Reproducible, shareable agent environments — the `Cargo.lock` for AI coding
 agent skills. Declare which skills a project depends on, pin them to an exact
-git commit + content checksum, and generate the native layout for each harness.
+git commit + content checksum, and materialize the portable Agent Skills layout
+(`.agents/skills/`) that current coding agents read.
 
 ## Prerequisites
 
@@ -45,35 +46,40 @@ prompts for a name when it cannot infer one. Optional `--description`,
 `--license`, `--version`, and `--homepage` flags record skill metadata in the
 manifest.
 
-`install` materializes each skill into `<harness>/skills/<name>/` from a
-content-addressed store. `harness` is a list; each entry maps to a base
-directory: `claude-code` → `.claude`, `opencode` → `.opencode`. A skill with a
-`path` is copied from that subdirectory only. The store lives at
-`~/.local/share/agenv/store/` (override with the `AGENV_STORE` env var).
+`install` materializes each skill into `.agents/skills/<name>/` from a
+content-addressed store. A skill with a `path` is copied from that subdirectory
+only. The store lives at `~/.local/share/agenv/store/` (override with the
+`AGENV_STORE` env var).
 
 A skill may instead live locally in `skills/<name>/` (no git repo). Declare it
 with a relative `source = "./skills/<name>"`; `agenv add my-skill --source
 ./skills/my-skill` does this automatically. Local skills are copied directly
-into the harness directories and are never recorded in `agenv.lock`.
+into `.agents/skills/` and are never recorded in `agenv.lock`.
 
-`sync` adopts skills found on disk but missing from the manifest — in the
-harness directories and in `skills/` — and then installs. A skill is recovered
+`sync` adopts skills found on disk but missing from the manifest — under
+`.agents/skills/` and in `skills/` — and then installs. A skill is recovered
 from its git source when known (via the lock); a skill already under `skills/`
-is declared directly; otherwise it is copied into `skills/<name>/` from a
-harness dir and declared with a relative `source = "./skills/<name>"`.
-`sync --prune` instead deletes any `<harness>/skills/<name>/` not in the
-manifest (it never touches `skills/`).
+is declared directly; otherwise it is copied into `skills/<name>/` from
+`.agents/skills/` and declared with a relative `source = "./skills/<name>"`.
+`sync --prune` instead deletes any `.agents/skills/<name>/` not in the manifest
+(it never touches `skills/`).
+
+Earlier versions asked you to choose a coding-agent harness (`agenv init
+--harness …`, `agenv harness add …`, `harness = […]` in the manifest). That is
+gone: skills always go to `.agents/skills/`. A manifest that still carries a
+`harness` key keeps loading — the key is just ignored and dropped on the next
+write.
 
 ## Files
 
-- `agenv.toml` — hand-authored manifest (`name`, `harness` (a list of harness
-  names), and a flat `[skills]` table with one inline entry per skill:
-  `"name" = { source, ref, path? }`, plus optional `description`, `license`,
-  `version`, `homepage` metadata).
+- `agenv.toml` — hand-authored manifest (`name` and a flat `[skills]` table with
+  one inline entry per skill: `"name" = { source, ref, path? }`, plus optional
+  `description`, `license`, `version`, `homepage` metadata).
 - `agenv.lock` — machine-generated lock (`version`, `[[skills]]` with `commit`
   and `checksum`), sorted by name. Commit both to your repo.
 - `skills/` — optional local skill sources (git-tracked), one directory per
   skill, referenced by a relative `source`.
+- `.agents/skills/` — generated, gitignored output that the coding agents read.
 
 ## Behavior notes
 
@@ -92,5 +98,5 @@ manifest (it never touches `skills/`).
 
 ## Scope
 
-Skills only, Claude Code + OpenCode, no sandboxing/process/network/credential
-isolation. MCP servers, plugins, other harnesses, and a registry are deferred.
+Skills only, no sandboxing/process/network/credential isolation. MCP servers,
+plugins, and a registry are deferred.

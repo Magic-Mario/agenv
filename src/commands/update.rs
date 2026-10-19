@@ -2,12 +2,11 @@ use anyhow::Result;
 
 use crate::commands::{lock_path, manifest_path, materialize_all};
 use crate::lock::{Lock, LockedSkill};
-use crate::manifest::{is_local_source, validate_harness, validate_skill, Manifest};
+use crate::manifest::{is_local_source, validate_skill, Manifest};
 use crate::resolver;
 
 pub fn run(name: Option<&str>) -> Result<()> {
     let manifest = Manifest::load(&manifest_path())?;
-    validate_harness(&manifest.harness)?;
     let mut lock = Lock::load(&lock_path())?.unwrap_or_default();
 
     let targets: Vec<String> = match name {
@@ -45,6 +44,6 @@ pub fn run(name: Option<&str>) -> Result<()> {
         .retain(|s| manifest.skills.contains_key(&s.name));
     lock.save(&lock_path())?;
 
-    materialize_all(&updated, &manifest.harness, "updated")?;
+    materialize_all(&updated, "updated")?;
     Ok(())
 }

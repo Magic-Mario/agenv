@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct Manifest {
     pub name: String,
-    pub harness: Vec<String>,
     #[serde(default)]
     pub skills: BTreeMap<String, SkillSpec>,
 }
@@ -41,11 +40,6 @@ impl Manifest {
     pub fn save(&self, path: &Path) -> Result<()> {
         let mut doc = toml_edit::DocumentMut::new();
         doc["name"] = toml_edit::value(self.name.clone());
-        let mut harness = toml_edit::Array::new();
-        for h in &self.harness {
-            harness.push(h.clone());
-        }
-        doc["harness"] = toml_edit::value(harness);
         if !self.skills.is_empty() {
             let mut skills = toml_edit::Table::new();
             for (name, spec) in &self.skills {
@@ -151,39 +145,17 @@ fn is_https_url(s: &str) -> bool {
     s.starts_with("https://")
 }
 
-/// Single source of truth: harness name -> base directory.
-pub const HARNESSES: &[(&str, &str)] = &[("claude-code", ".claude"), ("opencode", ".opencode")];
+/// The portable Agent Skills directory every current coding agent reads, and
+/// the one layout `agenv` materializes into: `.agents/skills/<name>/SKILL.md`.
+pub const AGENTS_DIR: &str = ".agents";
 
 /// Project-level directory that holds local (non-git) skills, git-tracked and
-/// outside the harness config dirs.
+/// outside the generated `.agents/skills/` output.
 pub const SKILLS_DIR: &str = "skills";
 
 /// The relative manifest `source` for a local skill named `name`.
 pub fn local_source(name: &str) -> String {
     format!("./{SKILLS_DIR}/{name}")
-}
-
-pub fn supported_harnesses() -> String {
-    HARNESSES
-        .iter()
-        .map(|(n, _)| *n)
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-pub fn validate_harness(harness: &[String]) -> Result<()> {
-    if harness.is_empty() {
-        anyhow::bail!("manifest must declare at least one harness");
-    }
-    for h in harness {
-        if !HARNESSES.iter().any(|(name, _)| name == h) {
-            anyhow::bail!(
-                "unknown harness '{h}' (supported: {})",
-                supported_harnesses()
-            );
-        }
-    }
-    Ok(())
 }
 
 fn is_safe_path(path: &str) -> bool {
@@ -271,7 +243,6 @@ mod tests {
         );
         let manifest = Manifest {
             name: "payments-backend".to_string(),
-            harness: vec!["claude-code".to_string()],
             skills,
         };
         let path = tmp_manifest_path("roundtrip");
@@ -290,7 +261,6 @@ mod tests {
     fn empty_skills_omits_section() {
         let manifest = Manifest {
             name: "x".to_string(),
-            harness: vec!["claude-code".to_string()],
             skills: BTreeMap::new(),
         };
         let path = tmp_manifest_path("empty");
@@ -307,7 +277,6 @@ mod tests {
         // TOML parses `ref = 1.2.0` as a float; deserializing into String must fail.
         let raw = r#"
 name = "x"
-harness = ["claude-code"]
 [skills.foo]
 source = "https://github.com/a/b"
 ref = 1.2.0
@@ -316,22 +285,24 @@ ref = 1.2.0
     }
 
     #[test]
-    fn rejects_string_harness() {
-        // `harness` is a list; a bare string must fail to parse (no coercion).
+    fn a_legacy_harness_key_is_ignored() {
+        // Manifests written before harness selection was removed still carry a
+        // `harness` key. Loading one must not fail; the key is simply dropped
+        // the next time the file is rewritten.
         let raw = r#"
 name = "x"
-harness = "claude-code"
+harness = ["claude-code"]
 [skills]
 "#;
-        assert!(toml::from_str::<Manifest>(raw).is_err());
-    }
+        let manifest: Manifest = toml::from_str(raw).unwrap();
+        assert_eq!(manifest.name, "x");
 
-    #[test]
-    fn harness_validation() {
-        assert!(validate_harness(&[]).is_err());
-        assert!(validate_harness(&["bogus".to_string()]).is_err());
-        assert!(validate_harness(&["claude-code".to_string()]).is_ok());
-        assert!(validate_harness(&["claude-code".to_string(), "opencode".to_string()]).is_ok());
+        let path = tmp_manifest_path("legacy-harness");
+        manifest.save(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("harness"), "{text}");
+        assert_eq!(manifest, Manifest::load(&path).unwrap());
+        let _ = std::fs::remove_file(&path);
     }
 
     fn spec(source: &str, reference: &str, path: Option<&str>) -> SkillSpec {

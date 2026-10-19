@@ -128,9 +128,9 @@ fn full_flow() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert!(project.join(".claude/skills/foo/SKILL.md").exists());
+    assert!(project.join(".agents/skills/foo/SKILL.md").exists());
     assert!(project.join("agenv.lock").exists());
-    let installed = std::fs::read(project.join(".claude/skills/foo/SKILL.md")).unwrap();
+    let installed = std::fs::read(project.join(".agents/skills/foo/SKILL.md")).unwrap();
 
     let out = run(&project, &store, &["status"]);
     assert!(
@@ -140,7 +140,7 @@ fn full_flow() {
     );
 
     // mutate installed content -> drift
-    std::fs::write(project.join(".claude/skills/foo/SKILL.md"), "# tampered\n").unwrap();
+    std::fs::write(project.join(".agents/skills/foo/SKILL.md"), "# tampered\n").unwrap();
     let out = run(&project, &store, &["status"]);
     assert!(!out.status.success());
 
@@ -152,7 +152,7 @@ fn full_flow() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert_eq!(
-        std::fs::read(project.join(".claude/skills/foo/SKILL.md")).unwrap(),
+        std::fs::read(project.join(".agents/skills/foo/SKILL.md")).unwrap(),
         installed
     );
     let out = run(&project, &store, &["status"]);
@@ -300,7 +300,7 @@ fn checksum_mismatch_aborts() {
     .status
     .success());
     assert!(run(&project, &store, &["install"]).status.success());
-    let before = std::fs::read_to_string(project.join(".claude/skills/foo/SKILL.md")).unwrap();
+    let before = std::fs::read_to_string(project.join(".agents/skills/foo/SKILL.md")).unwrap();
 
     // corrupt the store tree, not the materialized output
     let stored = find_file(&store, "SKILL.md");
@@ -308,7 +308,7 @@ fn checksum_mismatch_aborts() {
 
     let out = run(&project, &store, &["install"]);
     assert!(!out.status.success());
-    let after = std::fs::read_to_string(project.join(".claude/skills/foo/SKILL.md")).unwrap();
+    let after = std::fs::read_to_string(project.join(".agents/skills/foo/SKILL.md")).unwrap();
     assert_eq!(before, after, "prior install must remain untouched");
 
     let _ = std::fs::remove_dir_all(&base);
@@ -356,12 +356,12 @@ fn subdirectory_skill() {
     );
 
     let materialized =
-        std::fs::read_to_string(project.join(".claude/skills/grill-with-docs/SKILL.md")).unwrap();
+        std::fs::read_to_string(project.join(".agents/skills/grill-with-docs/SKILL.md")).unwrap();
     assert!(materialized.contains("grill"), "{materialized}");
     // only the requested subdirectory is materialized, not the whole repo
-    assert!(!project.join(".claude/skills/other").exists());
+    assert!(!project.join(".agents/skills/other").exists());
     assert!(!project
-        .join(".claude/skills/grill-with-docs/README.md")
+        .join(".agents/skills/grill-with-docs/README.md")
         .exists());
 
     let out = run(&project, &store, &["status"]);
@@ -371,36 +371,20 @@ fn subdirectory_skill() {
 }
 
 #[test]
-fn harness_add_updates_manifest_and_gitignore() {
-    let base = temp_base("harness-add");
+fn retired_harness_commands_fail() {
+    let base = temp_base("harness-retired");
     let project = base.join("project");
     let store = base.join("store");
     std::fs::create_dir_all(&project).unwrap();
 
     assert!(run(&project, &store, &["init"]).status.success());
 
-    let out = run(&project, &store, &["harness", "add", "opencode"]);
-    assert!(
-        out.status.success(),
-        "{}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-
-    let manifest = std::fs::read_to_string(project.join("agenv.toml")).unwrap();
-    assert!(manifest.contains("opencode"), "{manifest}");
-    assert!(manifest.contains("claude-code"), "{manifest}");
-
-    let gitignore = std::fs::read_to_string(project.join(".gitignore")).unwrap();
-    assert!(gitignore.contains(".claude/skills/"), "{gitignore}");
-    assert!(gitignore.contains(".opencode/skills/"), "{gitignore}");
-
-    // duplicate add is a no-op, not an error
-    assert!(run(&project, &store, &["harness", "add", "opencode"])
+    // The `harness` subcommand and the `--harness` option were removed; both
+    // invocations now fail as an unknown subcommand / unknown argument.
+    assert!(!run(&project, &store, &["harness", "add", "opencode"])
         .status
         .success());
-
-    // unknown harness rejected
-    assert!(!run(&project, &store, &["harness", "add", "nope"])
+    assert!(!run(&project, &store, &["init", "--harness", "opencode"])
         .status
         .success());
 
@@ -408,36 +392,31 @@ fn harness_add_updates_manifest_and_gitignore() {
 }
 
 #[test]
-fn init_with_harness_flag() {
-    let base = temp_base("init-harness");
+fn init_creates_agents_dir() {
+    let base = temp_base("init-layout");
     let project = base.join("project");
     let store = base.join("store");
     std::fs::create_dir_all(&project).unwrap();
 
-    let out = run(&project, &store, &["init", "--harness", "opencode"]);
+    let out = run(&project, &store, &["init"]);
     assert!(
         out.status.success(),
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
 
+    // No harness field is written anymore.
     let manifest = std::fs::read_to_string(project.join("agenv.toml")).unwrap();
-    assert!(manifest.contains("opencode"), "{manifest}");
-    assert!(!manifest.contains("claude-code"), "{manifest}");
+    assert!(!manifest.contains("harness"), "{manifest}");
 
+    // The one target dir and its gitignore entry.
     let gitignore = std::fs::read_to_string(project.join(".gitignore")).unwrap();
-    assert!(gitignore.contains(".opencode/skills/"), "{gitignore}");
-    assert!(!gitignore.contains(".claude/skills/"), "{gitignore}");
+    assert!(gitignore.contains(".agents/skills/"), "{gitignore}");
+    assert!(project.join(".agents/skills").is_dir());
 
-    assert!(project.join(".opencode/skills").is_dir());
+    // None of the retired harness dirs are created.
     assert!(!project.join(".claude").exists());
-
-    // unknown harness rejected
-    let bad = base.join("bad");
-    std::fs::create_dir_all(&bad).unwrap();
-    assert!(!run(&bad, &store, &["init", "--harness", "nope"])
-        .status
-        .success());
+    assert!(!project.join(".opencode").exists());
 
     let _ = std::fs::remove_dir_all(&base);
 }
@@ -457,7 +436,7 @@ fn edit_manifest(project: &Path, f: impl FnOnce(&mut toml::Value)) {
 }
 
 #[test]
-fn sync_multi_harness_prunes() {
+fn sync_prunes() {
     let base = temp_base("sync");
     let src = make_source(&base);
     let project = base.join("project");
@@ -466,13 +445,6 @@ fn sync_multi_harness_prunes() {
     let source = src.to_string_lossy().into_owned();
 
     assert!(run(&project, &store, &["init"]).status.success());
-
-    edit_manifest(&project, |m| {
-        m["harness"] = toml::Value::Array(vec![
-            toml::Value::String("claude-code".into()),
-            toml::Value::String("opencode".into()),
-        ]);
-    });
 
     assert!(run(
         &project,
@@ -488,8 +460,7 @@ fn sync_multi_harness_prunes() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert!(project.join(".claude/skills/foo/SKILL.md").exists());
-    assert!(project.join(".opencode/skills/foo/SKILL.md").exists());
+    assert!(project.join(".agents/skills/foo/SKILL.md").exists());
 
     edit_manifest(&project, |m| {
         m["skills"].as_table_mut().unwrap().remove("foo");
@@ -501,8 +472,7 @@ fn sync_multi_harness_prunes() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert!(!project.join(".claude/skills/foo").exists());
-    assert!(!project.join(".opencode/skills/foo").exists());
+    assert!(!project.join(".agents/skills/foo").exists());
 
     let _ = std::fs::remove_dir_all(&base);
 }
@@ -526,7 +496,7 @@ fn local_skill_install_no_lock_entry() {
     .success());
     assert!(run(&project, &store, &["install"]).status.success());
 
-    assert!(project.join(".claude/skills/my-skill/SKILL.md").exists());
+    assert!(project.join(".agents/skills/my-skill/SKILL.md").exists());
     let lock = std::fs::read_to_string(project.join("agenv.lock")).unwrap();
     assert!(!lock.contains("my-skill"), "{lock}");
 
@@ -534,13 +504,13 @@ fn local_skill_install_no_lock_entry() {
 }
 
 #[test]
-fn sync_adopts_harness_skill_vendors() {
-    let base = temp_base("adopt-harness");
+fn sync_adopts_agents_skill_vendors() {
+    let base = temp_base("adopt-agents");
     let project = base.join("project");
     let store = base.join("store");
     std::fs::create_dir_all(&project).unwrap();
-    std::fs::create_dir_all(project.join(".claude/skills/stray")).unwrap();
-    std::fs::write(project.join(".claude/skills/stray/SKILL.md"), "# stray\n").unwrap();
+    std::fs::create_dir_all(project.join(".agents/skills/stray")).unwrap();
+    std::fs::write(project.join(".agents/skills/stray/SKILL.md"), "# stray\n").unwrap();
 
     assert!(run(&project, &store, &["init"]).status.success());
 
@@ -559,7 +529,7 @@ fn sync_adopts_harness_skill_vendors() {
         "{manifest}"
     );
     assert!(project.join("skills/stray/SKILL.md").exists());
-    assert!(project.join(".claude/skills/stray/SKILL.md").exists());
+    assert!(project.join(".agents/skills/stray/SKILL.md").exists());
 
     let _ = std::fs::remove_dir_all(&base);
 }
@@ -587,7 +557,7 @@ fn sync_adopts_local_skills_dir() {
         manifest.contains("source = \"./skills/mine\""),
         "{manifest}"
     );
-    assert!(project.join(".claude/skills/mine/SKILL.md").exists());
+    assert!(project.join(".agents/skills/mine/SKILL.md").exists());
 
     let _ = std::fs::remove_dir_all(&base);
 }
@@ -598,8 +568,11 @@ fn sync_prune_deletes_undeclared() {
     let project = base.join("project");
     let store = base.join("store");
     std::fs::create_dir_all(&project).unwrap();
-    std::fs::create_dir_all(project.join(".claude/skills/extra")).unwrap();
-    std::fs::write(project.join(".claude/skills/extra/SKILL.md"), "# extra\n").unwrap();
+    std::fs::create_dir_all(project.join(".agents/skills/extra")).unwrap();
+    std::fs::write(project.join(".agents/skills/extra/SKILL.md"), "# extra\n").unwrap();
+    // `skills/` holds hand-authored sources; prune must never touch it.
+    std::fs::create_dir_all(project.join("skills/keep")).unwrap();
+    std::fs::write(project.join("skills/keep/SKILL.md"), "# keep\n").unwrap();
 
     assert!(run(&project, &store, &["init"]).status.success());
 
@@ -610,7 +583,8 @@ fn sync_prune_deletes_undeclared() {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    assert!(!project.join(".claude/skills/extra").exists());
+    assert!(!project.join(".agents/skills/extra").exists());
+    assert!(project.join("skills/keep/SKILL.md").exists());
     let manifest = std::fs::read_to_string(project.join("agenv.toml")).unwrap();
     assert!(!manifest.contains("extra"), "{manifest}");
 
@@ -662,8 +636,8 @@ fn install_requirements_file() {
     assert!(manifest.contains("skill-src"), "{manifest}");
     assert!(manifest.contains("other-skill"), "{manifest}");
 
-    assert!(project.join(".claude/skills/skill-src/SKILL.md").exists());
-    assert!(project.join(".claude/skills/other-skill/SKILL.md").exists());
+    assert!(project.join(".agents/skills/skill-src/SKILL.md").exists());
+    assert!(project.join(".agents/skills/other-skill/SKILL.md").exists());
 
     let _ = std::fs::remove_dir_all(&base);
 }

@@ -1,5 +1,4 @@
 pub mod add;
-pub mod harness;
 pub mod init;
 pub mod install;
 pub mod prune;
@@ -14,9 +13,7 @@ use anyhow::{Context, Result};
 use walkdir::WalkDir;
 
 use crate::lock::{Lock, LockedSkill};
-use crate::manifest::{
-    is_local_source, validate_harness, validate_skill, Manifest, HARNESSES, SKILLS_DIR,
-};
+use crate::manifest::{is_local_source, validate_skill, Manifest, AGENTS_DIR, SKILLS_DIR};
 use crate::resolver;
 
 pub fn manifest_path() -> PathBuf {
@@ -46,19 +43,6 @@ pub fn lock_path() -> PathBuf {
     PathBuf::from("agenv.lock")
 }
 
-pub fn harness_base(harness: &str) -> Result<&'static str> {
-    HARNESSES
-        .iter()
-        .find(|(name, _)| *name == harness)
-        .map(|(_, base)| *base)
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "unknown harness '{harness}' (supported: {})",
-                crate::manifest::supported_harnesses()
-            )
-        })
-}
-
 /// Refuse to operate through a symlinked path component (a shared/malicious
 /// repo could point `base`, `skills`, or a local source elsewhere and turn
 /// materialize/prune/vendor into writes/deletes/reads outside the project).
@@ -74,20 +58,18 @@ fn ensure_not_symlink(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The `<base>/skills` directory for a harness, refusing to operate through a
-/// symlinked `base` or `skills` component.
-pub fn checked_skills_dir(harness: &str) -> Result<PathBuf> {
-    let base = PathBuf::from(harness_base(harness)?);
+/// The `.agents/skills` directory, refusing to operate through a symlinked
+/// `.agents` or `.agents/skills` component.
+pub fn checked_skills_dir() -> Result<PathBuf> {
+    let base = PathBuf::from(AGENTS_DIR);
     let skills = base.join("skills");
     ensure_not_symlink(&base)?;
     ensure_not_symlink(&skills)?;
     Ok(skills)
 }
 
-pub fn skill_dir(harness: &str, name: &str) -> Result<PathBuf> {
-    Ok(PathBuf::from(harness_base(harness)?)
-        .join("skills")
-        .join(name))
+pub fn skill_dir(name: &str) -> Result<PathBuf> {
+    Ok(checked_skills_dir()?.join(name))
 }
 
 /// The project's local skills source dir (`skills/`), refusing to operate
@@ -122,8 +104,8 @@ pub fn vendor_skill(from: &Path, name: &str) -> Result<()> {
     copy_tree(from, &dest)
 }
 
-pub fn materialize(tree: &Path, harness: &str, name: &str) -> Result<()> {
-    let skills_dir = checked_skills_dir(harness)?;
+pub fn materialize(tree: &Path, name: &str) -> Result<()> {
+    let skills_dir = checked_skills_dir()?;
     let dest = skills_dir.join(name);
     let parent = &skills_dir;
     fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
@@ -142,15 +124,9 @@ pub fn materialize(tree: &Path, harness: &str, name: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn materialize_all(
-    items: &[(String, PathBuf)],
-    harnesses: &[String],
-    verb: &str,
-) -> Result<()> {
+pub fn materialize_all(items: &[(String, PathBuf)], verb: &str) -> Result<()> {
     for (name, tree) in items {
-        for harness in harnesses {
-            materialize(tree, harness, name)?;
-        }
+        materialize(tree, name)?;
         println!("{verb} {name}");
     }
     Ok(())
@@ -159,8 +135,6 @@ pub fn materialize_all(
 /// Resolve the manifest into lock entries + store trees, and return the updated
 /// lock. Does not save the lock or materialize; shared by `install` and `sync`.
 pub fn resolve_manifest(manifest: &Manifest) -> Result<(Lock, Vec<(String, PathBuf)>)> {
-    validate_harness(&manifest.harness)?;
-
     let mut lock = Lock::load(&lock_path())?.unwrap_or_default();
 
     let mut resolved: Vec<(String, PathBuf)> = Vec::new();
