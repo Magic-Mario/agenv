@@ -16,7 +16,7 @@ pub fn run(requirements: Option<&Path>) -> Result<()> {
     let (mut lock, resolved) = resolve_manifest(&manifest)?;
     lock.save(&lock_path())?;
 
-    materialize_all(&resolved, &manifest.harness, "installed")?;
+    materialize_all(&resolved, "installed")?;
     println!("installed {} skills", resolved.len());
     Ok(())
 }

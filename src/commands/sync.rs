@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
@@ -24,7 +23,7 @@ pub fn run(prune: bool) -> Result<()> {
     let (mut lock, resolved) = resolve_manifest(&manifest)?;
     lock.save(&lock_path())?;
 
-    materialize_all(&resolved, &manifest.harness, "synced")?;
+    materialize_all(&resolved, "synced")?;
 
     if prune {
         prune_stale(&manifest)?;
@@ -34,19 +33,16 @@ pub fn run(prune: bool) -> Result<()> {
     Ok(())
 }
 
-/// Add skills found on disk (harness dirs + `skills/`) but missing from the
+/// Add skills found on disk (`.agents/skills/` + `skills/`) but missing from the
 /// manifest. Source recovery order: lock entry (git) -> existing `skills/<name>`
-/// -> vendor a copy from a harness dir. Never writes an absolute path.
+/// -> vendor a copy from `.agents/skills/`. Never writes an absolute path.
 fn adopt(manifest: &mut Manifest) -> Result<usize> {
     let lock = Lock::load(&lock_path())?.unwrap_or_default();
 
     let mut discovered: BTreeSet<String> = BTreeSet::new();
 
-    for harness in &manifest.harness {
-        let skills_dir = checked_skills_dir(harness)?;
-        if !skills_dir.exists() {
-            continue;
-        }
+    let skills_dir = checked_skills_dir()?;
+    if skills_dir.exists() {
         for entry in fs::read_dir(&skills_dir)
             .with_context(|| format!("reading {}", skills_dir.display()))?
         {
@@ -93,8 +89,10 @@ fn adopt(manifest: &mut Manifest) -> Result<usize> {
                 ..Default::default()
             }
         } else {
-            let src = harness_dir_with(&manifest.harness, &name)?
-                .ok_or_else(|| anyhow::anyhow!("skill '{name}' not found on disk"))?;
+            let src = skills_dir.join(&name);
+            if !src.is_dir() {
+                anyhow::bail!("skill '{name}' not found on disk");
+            }
             vendor_skill(&src, &name)?;
             println!("vendored {name}");
             SkillSpec {
@@ -111,37 +109,25 @@ fn adopt(manifest: &mut Manifest) -> Result<usize> {
     Ok(added)
 }
 
-fn harness_dir_with(harnesses: &[String], name: &str) -> Result<Option<PathBuf>> {
-    for harness in harnesses {
-        let dir = checked_skills_dir(harness)?.join(name);
-        if dir.is_dir() {
-            return Ok(Some(dir));
-        }
-    }
-    Ok(None)
-}
-
 fn prune_stale(manifest: &Manifest) -> Result<()> {
-    for harness in &manifest.harness {
-        let skills_dir = checked_skills_dir(harness)?;
-        if !skills_dir.exists() {
+    let skills_dir = checked_skills_dir()?;
+    if !skills_dir.exists() {
+        return Ok(());
+    }
+    for entry in
+        fs::read_dir(&skills_dir).with_context(|| format!("reading {}", skills_dir.display()))?
+    {
+        let entry = entry.with_context(|| format!("reading {}", skills_dir.display()))?;
+        if !entry.file_type()?.is_dir() {
             continue;
         }
-        for entry in fs::read_dir(&skills_dir)
-            .with_context(|| format!("reading {}", skills_dir.display()))?
-        {
-            let entry = entry.with_context(|| format!("reading {}", skills_dir.display()))?;
-            if !entry.file_type()?.is_dir() {
-                continue;
-            }
-            let name = entry.file_name().to_string_lossy().into_owned();
-            // Deliberate: prune removes every directory under <base>/skills/ not
-            // in the manifest, not just dirs agenv created. See spec R4.
-            if !manifest.skills.contains_key(&name) {
-                fs::remove_dir_all(entry.path())
-                    .with_context(|| format!("removing {}", entry.path().display()))?;
-                println!("removed {name} ({harness})");
-            }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        // Deliberate: prune removes every directory under `.agents/skills/` not
+        // in the manifest, not just dirs agenv created. See spec R5.
+        if !manifest.skills.contains_key(&name) {
+            fs::remove_dir_all(entry.path())
+                .with_context(|| format!("removing {}", entry.path().display()))?;
+            println!("removed {name}");
         }
     }
     Ok(())
